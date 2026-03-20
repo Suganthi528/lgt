@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { API_BASE } from '../config';
+import LanguageSelector from './LanguageSelector';
 import './Form.css';
 
 function JoinRoom() {
@@ -12,6 +13,7 @@ function JoinRoom() {
     roomId: '',
     passcode: ''
   });
+  const [translationLanguage, setTranslationLanguage] = useState('es');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -59,7 +61,8 @@ function JoinRoom() {
             participantName: formData.participantName,
             participantEmail: formData.participantEmail,
             passcode: formData.passcode,
-            isHost: false
+            isHost: false,
+            translationLanguage
           }
         });
       } else {
@@ -134,6 +137,11 @@ function JoinRoom() {
               placeholder="Enter the room passcode"
             />
           </div>
+
+          <LanguageSelector
+            selectedLanguage={translationLanguage}
+            onLanguageChange={setTranslationLanguage}
+          />
 
           <div className="form-actions">
             <button

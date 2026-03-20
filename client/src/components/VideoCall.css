@@ -866,15 +866,18 @@
 /* Control Bar */
 .control-bar {
   background: rgba(30, 60, 114, 0.95);
-  padding: 20px 30px;
+  padding: 15px 20px;
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
+  gap: 10px;
   border-top: 3px solid #3498db;
   backdrop-filter: blur(15px);
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
   position: relative;
   z-index: 100;
+  min-height: 80px;
 }
 
 .control-bar::before {
@@ -890,8 +893,10 @@
 
 .control-group {
   display: flex;
-  gap: 15px;
+  flex-wrap: wrap;
+  gap: 10px;
   align-items: center;
+  justify-content: center;
   position: relative;
   z-index: 1;
 }
@@ -900,19 +905,21 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 15px 20px;
+  gap: 4px;
+  padding: 10px 15px;
   background: rgba(255, 255, 255, 0.1);
   border: 2px solid rgba(255, 255, 255, 0.2);
-  border-radius: 15px;
+  border-radius: 12px;
   color: white;
   cursor: pointer;
   transition: all 0.4s ease;
-  font-size: 1.3rem;
-  min-width: 80px;
+  font-size: 1.2rem;
+  min-width: 70px;
+  max-width: 90px;
   backdrop-filter: blur(10px);
   position: relative;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .control-btn::before {
@@ -931,12 +938,17 @@
 }
 
 .control-btn span {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
   position: relative;
   z-index: 1;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .control-btn:hover {
@@ -1175,6 +1187,26 @@
   .sidebar {
     width: 300px;
   }
+  
+  .control-bar {
+    padding: 12px 15px;
+    gap: 8px;
+  }
+  
+  .control-group {
+    gap: 8px;
+  }
+  
+  .control-btn {
+    min-width: 65px;
+    max-width: 85px;
+    padding: 8px 12px;
+    font-size: 1.1rem;
+  }
+  
+  .control-btn span {
+    font-size: 0.6rem;
+  }
 }
 
 @media (max-width: 768px) {
@@ -1204,23 +1236,26 @@
   }
   
   .control-bar {
-    padding: 10px 15px;
-    flex-wrap: wrap;
-    gap: 8px;
+    padding: 10px;
+    gap: 6px;
+    min-height: auto;
   }
   
   .control-group {
-    gap: 8px;
+    gap: 6px;
   }
   
   .control-btn {
-    min-width: 60px;
-    padding: 10px 12px;
+    min-width: 55px;
+    max-width: 75px;
+    padding: 8px 10px;
     font-size: 1rem;
+    gap: 3px;
   }
   
   .control-btn span {
-    font-size: 0.6rem;
+    font-size: 0.55rem;
+    letter-spacing: 0.2px;
   }
 }
 
@@ -1235,21 +1270,79 @@
   }
   
   .control-bar {
-    padding: 8px 10px;
+    padding: 8px;
+    gap: 5px;
+  }
+  
+  .control-group {
+    gap: 5px;
   }
   
   .control-btn {
-    min-width: 50px;
-    padding: 8px 10px;
+    min-width: 48px;
+    max-width: 65px;
+    padding: 6px 8px;
     font-size: 0.9rem;
+    gap: 2px;
   }
   
   .control-btn span {
-    font-size: 0.55rem;
+    font-size: 0.5rem;
+    letter-spacing: 0.1px;
   }
   
   .sidebar {
     max-height: 250px;
+  }
+}
+
+/* Extra small screens - ensure all buttons fit */
+@media (max-width: 380px) {
+  .control-bar {
+    padding: 6px;
+    gap: 4px;
+  }
+  
+  .control-group {
+    gap: 4px;
+  }
+  
+  .control-btn {
+    min-width: 42px;
+    max-width: 58px;
+    padding: 5px 6px;
+    font-size: 0.85rem;
+    gap: 1px;
+    border-radius: 8px;
+  }
+  
+  .control-btn span {
+    font-size: 0.45rem;
+    letter-spacing: 0px;
+  }
+}
+
+/* Landscape mobile orientation */
+@media (max-width: 900px) and (max-height: 500px) {
+  .control-bar {
+    padding: 6px 10px;
+    gap: 5px;
+    min-height: 60px;
+  }
+  
+  .control-group {
+    gap: 5px;
+  }
+  
+  .control-btn {
+    min-width: 50px;
+    max-width: 70px;
+    padding: 5px 8px;
+    font-size: 0.95rem;
+  }
+  
+  .control-btn span {
+    font-size: 0.5rem;
   }
 }
 
@@ -1381,4 +1474,266 @@
 .bar.poor {
   background: #e74c3c;
   box-shadow: 0 0 8px rgba(231, 76, 60, 0.5);
+}
+
+/* Translation Styles */
+.translate-btn {
+  position: relative;
+}
+
+.translate-btn.active {
+  background: #ff4444;
+  animation: pulse 1.5s infinite;
+}
+
+.translate-btn.translating {
+  background: #ffa500;
+  cursor: wait;
+}
+
+.translation-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: #ff4444;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.transcriptions-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: white;
+}
+
+.transcriptions-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid #e0e0e0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.transcriptions-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.transcriptions-header button {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 18px;
+  transition: background 0.2s;
+}
+
+.transcriptions-header button:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.transcriptions-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.no-transcriptions {
+  text-align: center;
+  padding: 40px 20px;
+  color: #666;
+}
+
+.no-transcriptions p:first-child {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.transcription-item {
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  border-left: 4px solid #667eea;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.transcription-time {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+
+.transcription-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.original-text,
+.translated-text {
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.original-text {
+  background: white;
+  border: 1px solid #e0e0e0;
+}
+
+.translated-text {
+  background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+  border: 1px solid #667eea30;
+}
+
+.original-text strong,
+.translated-text strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #555;
+}
+
+.original-text p,
+.translated-text p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #333;
+}
+
+.translation-arrow {
+  text-align: center;
+  font-size: 20px;
+  color: #667eea;
+  font-weight: bold;
+}
+
+.transcriptions-actions {
+  padding: 16px;
+  border-top: 1px solid #e0e0e0;
+  background: #f8f9fa;
+}
+
+.clear-btn {
+  width: 100%;
+  padding: 12px;
+  background: #ff4444;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+.clear-btn:hover {
+  background: #cc0000;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* Speaker name in transcription */
+.transcription-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.transcription-speaker {
+  font-size: 14px;
+  font-weight: 600;
+  color: #667eea;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.transcription-time {
+  font-size: 12px;
+  color: #999;
+}
+
+/* Auto-translate button active state */
+.translate-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  animation: pulse-glow 2s infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(102, 126, 234, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(102, 126, 234, 0.8);
+  }
+}
+
+/* Translation status indicator */
+.translation-status-active {
+  margin-top: 20px;
+  padding: 16px;
+  background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+  border: 2px solid #667eea;
+  border-radius: 12px;
+  animation: pulse-border 2s infinite;
+}
+
+.translation-status-active p:first-child {
+  font-size: 16px;
+  font-weight: 600;
+  color: #667eea;
+  margin-bottom: 8px;
+}
+
+.status-detail {
+  font-size: 14px;
+  color: #555;
+  margin: 8px 0;
+  font-family: monospace;
+}
+
+.status-hint {
+  font-size: 12px;
+  color: #888;
+  font-style: italic;
+  margin-top: 8px;
+}
+
+@keyframes pulse-border {
+  0%, 100% {
+    border-color: #667eea;
+    box-shadow: 0 0 10px rgba(102, 126, 234, 0.3);
+  }
+  50% {
+    border-color: #764ba2;
+    box-shadow: 0 0 20px rgba(118, 75, 162, 0.5);
+  }
 }

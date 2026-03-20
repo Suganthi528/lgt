@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config';
+import LanguageSelector from './LanguageSelector';
 import './Form.css';
 
 function CreateRoom() {
@@ -13,6 +14,7 @@ function CreateRoom() {
     meetingDate: '',
     meetingTime: ''
   });
+  const [translationLanguage, setTranslationLanguage] = useState('es');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -57,7 +59,8 @@ function CreateRoom() {
             participantName: formData.creatorName,
             participantEmail: formData.creatorEmail,
             passcode: formData.passcode,
-            isHost: true
+            isHost: true,
+            translationLanguage
           }
         });
       } else {
@@ -167,6 +170,11 @@ function CreateRoom() {
               />
             </div>
           </div>
+
+          <LanguageSelector
+            selectedLanguage={translationLanguage}
+            onLanguageChange={setTranslationLanguage}
+          />
 
           <div className="form-actions">
             <button

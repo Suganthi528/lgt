@@ -30,7 +30,47 @@ function VideoCall() {
   const [showAudioWarning, setShowAudioWarning] = useState(false);
   const [audioDevices, setAudioDevices] = useState([]);
   
-  // Recording state
+  // Translation state
+  const [translationEnabled, setTranslationEnabled] = useState(false);
+  const [translationLanguage, setTranslationLanguage] = useState('es');
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [transcriptionResults, setTranscriptionResults] = useState([]);
+  const [showTranscriptions, setShowTranscriptions] = useState(false);
+  const [audioRecorder, setAudioRecorder] = useState(null);
+  const [isCapturingAudio, setIsCapturingAudio] = useState(false);
+  const [continuousRecorder, setContinuousRecorder] = useState(null);
+  const continuousRecorderRef = useRef(null);
+  const [translationStatus, setTranslationStatus] = useState(''); // Status message for debugging
+  
+  // TTS state
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const ttsEnabledRef = useRef(true);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    ttsEnabledRef.current = ttsEnabled;
+  }, [ttsEnabled]);
+
+  // Speak translated text using browser SpeechSynthesis
+  const speakText = useCallback((text, langCode) => {
+    if (!window.speechSynthesis) return;
+    // Map language codes to BCP-47 tags for SpeechSynthesis
+    const langMap = {
+      'en': 'en-US', 'es': 'es-ES', 'fr': 'fr-FR', 'de': 'de-DE',
+      'it': 'it-IT', 'pt': 'pt-PT', 'ru': 'ru-RU', 'ja': 'ja-JP',
+      'ko': 'ko-KR', 'zh': 'zh-CN', 'ar': 'ar-SA', 'hi': 'hi-IN',
+      'tr': 'tr-TR', 'nl': 'nl-NL', 'pl': 'pl-PL'
+    };
+    const lang = langMap[langCode] || langCode || 'en-US';
+    window.speechSynthesis.cancel(); // stop any ongoing speech
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang;
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    window.speechSynthesis.speak(utterance);
+    console.log(`🔊 Speaking in ${lang}: "${text}"`);
+  }, []);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingType, setRecordingType] = useState('both'); // 'video', 'audio', 'both'
   const [recordedChunks, setRecordedChunks] = useState([]);
@@ -69,11 +109,17 @@ function VideoCall() {
     }
 
     // Check if this is a valid join attempt (not just page refresh)
-    const { participantName, participantEmail, passcode } = location.state;
+    const { participantName, participantEmail, passcode, translationLanguage: userLang } = location.state;
     if (!participantName || !participantEmail || !passcode) {
       console.log('❌ Incomplete participant data, redirecting to home');
       navigate('/');
       return;
+    }
+
+    // Set user's preferred translation language
+    if (userLang) {
+      setTranslationLanguage(userLang);
+      console.log(`🌐 User translation language set to: ${userLang}`);
     }
 
     console.log('✅ Valid join attempt detected, initializing call');
@@ -163,15 +209,16 @@ function VideoCall() {
       setupSocketListeners();
 
       // Join room after getting media
-      const { participantName, participantEmail, passcode, isHost } = location.state;
-      console.log(`🏠 Joining room ${roomId} as ${participantName} (${isHost ? 'ADMIN' : 'PARTICIPANT'})`);
+      const { participantName, participantEmail, passcode, isHost, translationLanguage: userLang } = location.state;
+      console.log(`🏠 Joining room ${roomId} as ${participantName} (${isHost ? 'ADMIN' : 'PARTICIPANT'}) with translation: ${userLang || translationLanguage}`);
       
       socketRef.current.emit('join-room', {
         roomId,
         passcode,
         participantName,
         participantEmail,
-        isHost: isHost || false
+        isHost: isHost || false,
+        translationLanguage: userLang || translationLanguage
       });
 
       setConnectionStatus('Connected');
@@ -389,6 +436,54 @@ function VideoCall() {
 
     socket.on('room-stats', (stats) => {
       setRoomStats(stats);
+    });
+
+    // Translation event handlers
+    socket.on('transcription-result', (result) => {
+      console.log('📝 Transcription result:', result);
+      setIsTranslating(false);
+      
+      const newResult = {
+        id: Date.now(),
+        original: result.original,
+        translated: result.translated,
+        targetLanguage: result.targetLanguage,
+        targetLanguageName: result.targetLanguageName,
+        speakerName: result.speakerName || 'Unknown',
+        timestamp: new Date().toLocaleTimeString()
+      };
+      
+      setTranscriptionResults(prev => [...prev, newResult]);
+      setShowTranscriptions(true);
+    });
+
+    // Handle incoming translations from other participants
+    socket.on('participant-translation', (data) => {
+      console.log('🌐 Received translation from participant:', data);
+      
+      const newResult = {
+        id: Date.now(),
+        original: data.original,
+        translated: data.translated,
+        targetLanguage: data.targetLanguage,
+        targetLanguageName: data.targetLanguageName,
+        speakerName: data.speakerName,
+        timestamp: new Date().toLocaleTimeString()
+      };
+      
+      setTranscriptionResults(prev => [...prev, newResult]);
+      setShowTranscriptions(true);
+
+      // Speak the translated text if TTS is enabled (use ref to avoid stale closure)
+      if (ttsEnabledRef.current && data.translated) {
+        speakText(data.translated, data.targetLanguage);
+      }
+    });
+
+    socket.on('transcription-error', (error) => {
+      console.error('❌ Transcription error:', error);
+      setIsTranslating(false);
+      alert(`Translation failed: ${error.error}`);
     });
 
     socket.on('error', (message) => {
@@ -794,6 +889,246 @@ function VideoCall() {
     setShowStats(true);
   }, []);
 
+  // Translation functions
+  
+  // Continuous translation - automatically captures and translates speech
+  const startContinuousTranslation = useCallback(async () => {
+    try {
+      if (!localStreamRef.current) {
+        alert('No audio stream available. Please check your microphone.');
+        return;
+      }
+      if (!socketRef.current || !socketRef.current.connected) {
+        alert('Not connected to server. Please wait and try again.');
+        return;
+      }
+      if (continuousRecorderRef.current) {
+        console.log('⚠️ Continuous translation already running');
+        return;
+      }
+
+      console.log('🎤 Starting continuous translation...');
+      setTranslationEnabled(true);
+
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (!audioTrack) {
+        alert('No audio track available. Please check your microphone permissions.');
+        setTranslationEnabled(false);
+        return;
+      }
+
+      const participantName = location.state?.participantName || 'Unknown';
+      let isRunning = true;
+
+      // Recursive function: record for 5s, send, repeat
+      const recordAndSend = () => {
+        if (!isRunning || !continuousRecorderRef.current) return;
+
+        const audioStream = new MediaStream([audioTrack]);
+        const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
+          .find(m => MediaRecorder.isTypeSupported(m)) || 'audio/webm';
+
+        const recorder = new MediaRecorder(audioStream, { mimeType });
+        const chunks = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = () => {
+          if (!isRunning) return;
+
+          const blob = new Blob(chunks, { type: mimeType });
+          console.log(`📊 Audio blob: ${blob.size} bytes`);
+
+          if (blob.size > 5000) {
+            setTranslationStatus('Sending to server...');
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+            reader.onloadend = () => {
+              if (!isRunning) return;
+              if (socketRef.current?.connected) {
+                socketRef.current.emit('continuous-audio', {
+                  audio: reader.result,
+                  roomId,
+                  speakerName: participantName
+                });
+                console.log('✅ Audio sent to server');
+                setTranslationStatus('✅ Sent — listening...');
+              }
+              // Schedule next recording immediately after sending
+              setTimeout(() => {
+                setTranslationStatus('🎤 Listening...');
+                recordAndSend();
+              }, 300);
+            };
+          } else {
+            console.log('⚠️ Silence detected, skipping');
+            setTranslationStatus('⚠️ Silence — listening...');
+            // Still schedule next recording
+            setTimeout(() => {
+              setTranslationStatus('🎤 Listening...');
+              recordAndSend();
+            }, 300);
+          }
+        };
+
+        recorder.onerror = (e) => {
+          console.error('❌ Recorder error:', e.error);
+          setTimeout(recordAndSend, 1000);
+        };
+
+        // Store current recorder so we can stop it if needed
+        continuousRecorderRef.current.recorder = recorder;
+
+        recorder.start();
+        setTranslationStatus('🎤 Listening...');
+        console.log('🎙️ Recording started, will stop in 5s...');
+
+        // Stop after 5 seconds to process
+        setTimeout(() => {
+          if (recorder.state === 'recording') {
+            recorder.stop();
+          }
+        }, 5000);
+      };
+
+      // Initialize ref with stop control
+      continuousRecorderRef.current = {
+        recorder: null,
+        stop: () => { isRunning = false; }
+      };
+
+      recordAndSend();
+      console.log('✅ Continuous translation loop started');
+
+    } catch (error) {
+      console.error('❌ Error starting continuous translation:', error);
+      setTranslationEnabled(false);
+      alert('Failed to start continuous translation: ' + error.message);
+    }
+  }, [roomId, location.state]);
+
+  const stopContinuousTranslation = useCallback(() => {
+    if (continuousRecorderRef.current) {
+      console.log('🛑 Stopping continuous translation...');
+      const { recorder, stop } = continuousRecorderRef.current;
+      if (stop) stop(); // signal the loop to stop
+      if (recorder && recorder.state === 'recording') recorder.stop();
+      continuousRecorderRef.current = null;
+      setTranslationEnabled(false);
+      setTranslationStatus('');
+      console.log('✅ Continuous translation stopped');
+    }
+  }, []);
+
+  const toggleContinuousTranslation = useCallback(() => {
+    if (translationEnabled) {
+      stopContinuousTranslation();
+    } else {
+      startContinuousTranslation();
+    }
+  }, [translationEnabled, startContinuousTranslation, stopContinuousTranslation]);
+
+  // Manual translation (original functionality)
+  const startTranslation = useCallback(async () => {
+    try {
+      if (!localStreamRef.current) {
+        alert('No audio stream available');
+        return;
+      }
+
+      console.log('🎤 Starting audio capture for translation...');
+      setIsCapturingAudio(true);
+      
+      // Create MediaRecorder for audio capture
+      const audioStream = new MediaStream();
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      
+      if (!audioTrack) {
+        alert('No audio track available');
+        setIsCapturingAudio(false);
+        return;
+      }
+      
+      audioStream.addTrack(audioTrack);
+      
+      const recorder = new MediaRecorder(audioStream, {
+        mimeType: 'audio/webm'
+      });
+      
+      const audioChunks = [];
+      
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunks.push(event.data);
+        }
+      };
+      
+      recorder.onstop = async () => {
+        console.log('🎤 Audio capture stopped, processing...');
+        setIsTranslating(true);
+        
+        try {
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          
+          // Convert to base64
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = () => {
+            const base64Audio = reader.result;
+            
+            // Send to server for transcription and translation
+            socketRef.current.emit('send-audio', {
+              audio: base64Audio,
+              targetLanguage: translationLanguage
+            });
+          };
+        } catch (err) {
+          console.error('❌ Error processing audio:', err);
+          setIsTranslating(false);
+          alert('Failed to process audio');
+        }
+      };
+      
+      setAudioRecorder(recorder);
+      recorder.start();
+      
+      // Auto-stop after 10 seconds (adjust as needed)
+      setTimeout(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop();
+          setIsCapturingAudio(false);
+        }
+      }, 10000);
+      
+    } catch (error) {
+      console.error('❌ Error starting translation:', error);
+      setIsCapturingAudio(false);
+      alert('Failed to start audio capture');
+    }
+  }, [translationLanguage]);
+
+  const stopTranslation = useCallback(() => {
+    if (audioRecorder && audioRecorder.state === 'recording') {
+      console.log('🛑 Stopping audio capture...');
+      audioRecorder.stop();
+      setIsCapturingAudio(false);
+    }
+  }, [audioRecorder]);
+
+  const toggleTranslation = useCallback(() => {
+    if (isCapturingAudio) {
+      stopTranslation();
+    } else {
+      startTranslation();
+    }
+  }, [isCapturingAudio, startTranslation, stopTranslation]);
+
+  const clearTranscriptions = useCallback(() => {
+    setTranscriptionResults([]);
+  }, []);
+
   // Recording functions
   const startRecording = useCallback(async (type = 'both') => {
     try {
@@ -978,6 +1313,14 @@ function VideoCall() {
   const cleanup = () => {
     console.log('🧹 Cleaning up...');
     
+    // Stop any ongoing speech
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+
+    // Stop continuous translation if active
+    if (continuousRecorderRef.current) {
+      stopContinuousTranslation();
+    }
+    
     // Stop recording if active
     if (isRecording && mediaRecorderRef.current) {
       mediaRecorderRef.current.stop();
@@ -1126,7 +1469,7 @@ function VideoCall() {
         </div>
 
         {/* Sidebar */}
-        {(showChat || showPeople || showRecordings) && (
+        {(showChat || showPeople || showRecordings || showTranscriptions) && (
           <div className="sidebar">
             {showChat && (
               <div className="chat-panel">
@@ -1290,6 +1633,77 @@ function VideoCall() {
                 </div>
               </div>
             )}
+
+            {showTranscriptions && (
+              <div className="transcriptions-panel">
+                <div className="transcriptions-header">
+                  <h3>🌐 Translations ({transcriptionResults.length})</h3>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      onClick={() => {
+                        if (ttsEnabled) window.speechSynthesis.cancel();
+                        setTtsEnabled(v => !v);
+                      }}
+                      title={ttsEnabled ? 'Mute voice output' : 'Enable voice output'}
+                      style={{
+                        background: ttsEnabled ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)',
+                        border: 'none', color: 'white', borderRadius: '50%',
+                        width: '32px', height: '32px', cursor: 'pointer',
+                        fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                      }}
+                    >
+                      {ttsEnabled ? '🔊' : '🔇'}
+                    </button>
+                    <button onClick={() => setShowTranscriptions(false)}>✕</button>
+                  </div>
+                </div>
+                <div className="transcriptions-list">
+                  {transcriptionResults.length === 0 ? (
+                    <div className="no-transcriptions">
+                      <p>No translations yet</p>
+                      {translationEnabled ? (
+                        <div className="translation-status-active">
+                          <p>🎤 Auto-Translate is ON</p>
+                          <p className="status-detail">{translationStatus || 'Listening for speech...'}</p>
+                          <p className="status-hint">Speak clearly and wait 10-15 seconds</p>
+                        </div>
+                      ) : (
+                        <p>Click the Auto-Translate button to start</p>
+                      )}
+                    </div>
+                  ) : (
+                    transcriptionResults.map(result => (
+                      <div key={result.id} className="transcription-item">
+                        <div className="transcription-header">
+                          <div className="transcription-speaker">
+                            🗣️ {result.speakerName || 'Unknown'}
+                          </div>
+                          <div className="transcription-time">{result.timestamp}</div>
+                        </div>
+                        <div className="transcription-content">
+                          <div className="original-text">
+                            <strong>Original:</strong>
+                            <p>{result.original}</p>
+                          </div>
+                          <div className="translation-arrow">↓</div>
+                          <div className="translated-text">
+                            <strong>Translated ({result.targetLanguageName}):</strong>
+                            <p>{result.translated}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {transcriptionResults.length > 0 && (
+                  <div className="transcriptions-actions">
+                    <button onClick={clearTranscriptions} className="clear-btn">
+                      🗑️ Clear All
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1405,6 +1819,29 @@ function VideoCall() {
           >
             👥
             <span>People</span>
+          </button>
+
+          <button
+            onClick={toggleContinuousTranslation}
+            className={`control-btn translate-btn ${translationEnabled ? 'active' : ''}`}
+            title={translationEnabled ? 'Stop Auto-Translation' : 'Start Auto-Translation'}
+          >
+            {translationEnabled ? '🔴' : '🌐'}
+            <span>
+              {translationEnabled ? 'Auto-Translate ON' : 'Auto-Translate'}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setShowTranscriptions(!showTranscriptions)}
+            className={`control-btn transcriptions-btn ${showTranscriptions ? 'active' : ''}`}
+            title="View Translations"
+          >
+            📝
+            <span>Translations</span>
+            {transcriptionResults.length > 0 && (
+              <span className="translation-count">{transcriptionResults.length}</span>
+            )}
           </button>
           
           <button

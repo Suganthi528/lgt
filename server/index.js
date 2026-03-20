@@ -1,7 +1,12 @@
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const cors = require("cors");
+import express from "express";
+import http from "http";
+import { Server } from "socket.io";
+import cors from "cors";
+import dotenv from "dotenv";
+import Groq from "groq-sdk";
+import fs from "fs";
+
+dotenv.config();
 
 const app = express();
 
@@ -40,6 +45,26 @@ const io = new Server(server, {
   }
 });
 
+// Initialize Groq
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY
+});
+
+// Clean up any leftover temp files from previous sessions
+const cleanupTempFiles = () => {
+  try {
+    const files = fs.readdirSync('.');
+    const tempFiles = files.filter(f => f.startsWith('temp_') && f.endsWith('.wav'));
+    if (tempFiles.length > 0) {
+      tempFiles.forEach(f => {
+        try { fs.unlinkSync(f); } catch (e) {}
+      });
+      console.log(`🧹 Cleaned up ${tempFiles.length} leftover temp files`);
+    }
+  } catch (e) {}
+};
+cleanupTempFiles();
+
 // Store rooms and their participants
 const rooms = new Map();
 const userSockets = new Map();
@@ -48,7 +73,10 @@ const userSockets = new Map();
 app.post('/api/rooms', (req, res) => {
   const { creatorName, creatorEmail, roomId, passcode, meetingDate, meetingTime } = req.body;
   
+  console.log('📥 Room creation request:', { roomId, creatorName, creatorEmail });
+  
   if (rooms.has(roomId)) {
+    console.log(`❌ Room ${roomId} already exists`);
     return res.status(400).json({ error: 'Room ID already exists' });
   }
   
@@ -69,17 +97,21 @@ app.post('/api/rooms', (req, res) => {
   
   rooms.set(roomId, room);
   console.log(`✅ Room created: ${roomId} by ${creatorName}`);
+  console.log(`📊 Total rooms in memory: ${rooms.size}`);
   res.json({ success: true, room });
 });
 
 app.get('/api/rooms', (req, res) => {
+  console.log('📋 Listing all rooms');
   const roomList = Array.from(rooms.values()).map(room => ({
     id: room.id,
     creatorName: room.creatorName,
     meetingDate: room.meetingDate,
     meetingTime: room.meetingTime,
-    participantCount: room.participants.length
+    participantCount: room.participants.length,
+    createdAt: room.createdAt
   }));
+  console.log(`📊 Total rooms: ${roomList.length}`);
   res.json(roomList);
 });
 
@@ -87,23 +119,280 @@ app.post('/api/rooms/:roomId/verify', (req, res) => {
   const { roomId } = req.params;
   const { passcode } = req.body;
   
+  console.log(`🔍 Room verification request for: ${roomId}`);
+  console.log(`📊 Available rooms: ${Array.from(rooms.keys()).join(', ') || 'none'}`);
+  
   const room = rooms.get(roomId);
   if (!room) {
+    console.log(`❌ Room ${roomId} not found`);
     return res.status(404).json({ error: 'Room not found' });
   }
   
   if (room.passcode !== passcode) {
+    console.log(`❌ Invalid passcode for room ${roomId}`);
     return res.status(401).json({ error: 'Invalid passcode' });
   }
   
+  console.log(`✅ Room ${roomId} verified successfully`);
   res.json({ success: true });
 });
 
 io.on("connection", socket => {
   console.log(`🔗 User connected: ${socket.id}`);
 
-  socket.on('join-room', ({ roomId, passcode, participantName, participantEmail, isHost }) => {
-    console.log(`👤 ${participantName} (${socket.id}) attempting to join room ${roomId} as ${isHost ? 'ADMIN' : 'PARTICIPANT'}`);
+  // Audio transcription and translation
+  socket.on("send-audio", async (audioData) => {
+    try {
+      console.log(`🎤 Received audio from ${socket.id}`);
+      
+      const { audio, targetLanguage = 'es' } = audioData;
+      
+      // Convert base64 audio to file
+      const buffer = Buffer.from(audio.split(",")[1], "base64");
+      const tempFilePath = `temp_${socket.id}_${Date.now()}.wav`;
+      fs.writeFileSync(tempFilePath, buffer);
+      console.log(`✅ Audio file created: ${tempFilePath} (${buffer.length} bytes)`);
+
+      // Transcribe audio using Whisper
+      console.log(`🎙️ Sending to Groq Whisper...`);
+      let text;
+      try {
+        const transcription = await groq.audio.transcriptions.create({
+          file: fs.createReadStream(tempFilePath),
+          model: "whisper-large-v3",
+          response_format: "json"
+        });
+
+        text = transcription.text;
+        console.log(`📝 Transcribed: ${text}`);
+      } catch (transcriptionError) {
+        console.error(`❌ Transcription failed:`, transcriptionError.message);
+        fs.unlinkSync(tempFilePath);
+        socket.emit("transcription-error", { 
+          error: "Failed to transcribe audio",
+          details: transcriptionError.message 
+        });
+        return;
+      }
+
+      // Get language name for better translation
+      const languageNames = {
+        'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
+        'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
+        'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'hi': 'Hindi',
+        'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish'
+      };
+      
+      const targetLangName = languageNames[targetLanguage] || 'Spanish';
+
+      // Translate text to target language
+      console.log(`🔄 Translating to ${targetLangName}...`);
+      const translation = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { 
+            role: "system", 
+            content: `You are a professional translator. Translate the given text to ${targetLangName}. Only provide the translation, no explanations.` 
+          },
+          { 
+            role: "user", 
+            content: text 
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 1024
+      });
+
+      const translatedText = translation.choices[0].message.content;
+      console.log(`🌐 Translated to ${targetLangName}: ${translatedText}`);
+
+      // Send original + translated text back
+      socket.emit("transcription-result", {
+        original: text,
+        translated: translatedText,
+        targetLanguage,
+        targetLanguageName: targetLangName
+      });
+
+      // Delete temp file
+      fs.unlinkSync(tempFilePath);
+      console.log(`✅ Audio processing complete for ${socket.id}`);
+
+    } catch (err) {
+      console.error("❌ Error processing audio:", err);
+      socket.emit("transcription-error", { 
+        error: "Failed to process audio",
+        details: err.message 
+      });
+    }
+  });
+
+  // Continuous audio translation - broadcasts to all participants
+  socket.on("continuous-audio", async (audioData) => {
+    try {
+      const { audio, roomId, speakerName } = audioData;
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`🎤 CONTINUOUS AUDIO RECEIVED`);
+      console.log(`   Speaker: ${speakerName} (${socket.id})`);
+      console.log(`   Room: ${roomId}`);
+      console.log(`   Audio size: ${audio ? audio.length : 0} chars`);
+      console.log(`${'='.repeat(60)}\n`);
+      
+      const room = rooms.get(roomId);
+      if (!room) {
+        console.log(`❌ Room ${roomId} not found`);
+        console.log(`   Available rooms:`, Array.from(rooms.keys()));
+        return;
+      }
+
+      console.log(`✅ Room found: ${roomId}`);
+      console.log(`   Participants in room: ${room.participants.length}`);
+      room.participants.forEach(p => {
+        console.log(`   - ${p.name} (${p.id}) [${p.translationLanguage || 'no lang'}]`);
+      });
+
+      // Convert base64 audio to file
+      if (!audio || !audio.includes(',')) {
+        console.log(`❌ Invalid audio data format`);
+        return;
+      }
+
+      const buffer = Buffer.from(audio.split(",")[1], "base64");
+      const tempFilePath = `temp_${socket.id}_${Date.now()}.wav`;
+      fs.writeFileSync(tempFilePath, buffer);
+      console.log(`✅ Audio file created: ${tempFilePath} (${buffer.length} bytes)`);
+
+      // Transcribe audio using Whisper
+      console.log(`🎙️ Sending to Groq Whisper for transcription...`);
+      console.log(`   File: ${tempFilePath}`);
+      console.log(`   Size: ${buffer.length} bytes`);
+      
+      let text;
+      try {
+        const transcription = await groq.audio.transcriptions.create({
+          file: fs.createReadStream(tempFilePath),
+          model: "whisper-large-v3",
+          response_format: "json"
+        });
+
+        text = transcription.text;
+        console.log(`📝 Transcribed: "${text}"`);
+
+        // Skip if transcription is empty or too short
+        if (!text || text.trim().length < 3) {
+          console.log(`⚠️ Skipping - transcription too short or empty`);
+          fs.unlinkSync(tempFilePath);
+          return;
+        }
+      } catch (transcriptionError) {
+        console.error(`❌ Transcription failed:`, transcriptionError.message);
+        if (transcriptionError.error) {
+          console.error(`   Details:`, transcriptionError.error);
+        }
+        fs.unlinkSync(tempFilePath);
+        return;
+      }
+
+      // Get language names
+      const languageNames = {
+        'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
+        'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
+        'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'hi': 'Hindi',
+        'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish'
+      };
+
+      // Group participants by their translation language
+      const participantsByLanguage = new Map();
+      
+      const otherParticipants = room.participants.filter(p => p.id !== socket.id);
+      console.log(`\n👥 Other participants (excluding speaker): ${otherParticipants.length}`);
+      
+      otherParticipants.forEach(participant => {
+        const lang = participant.translationLanguage || 'en';
+        console.log(`   - ${participant.name}: wants ${lang} (${languageNames[lang]})`);
+        
+        if (!participantsByLanguage.has(lang)) {
+          participantsByLanguage.set(lang, []);
+        }
+        participantsByLanguage.get(lang).push(participant);
+      });
+
+      if (participantsByLanguage.size === 0) {
+        console.log(`⚠️ No other participants to send translations to`);
+        fs.unlinkSync(tempFilePath);
+        return;
+      }
+
+      console.log(`\n🌐 Translation plan:`);
+      participantsByLanguage.forEach((participants, lang) => {
+        console.log(`   ${languageNames[lang]}: ${participants.map(p => p.name).join(', ')}`);
+      });
+
+      // Translate once per language and send to all participants who need that language
+      const translationPromises = Array.from(participantsByLanguage.entries()).map(async ([targetLang, participants]) => {
+        try {
+          const targetLangName = languageNames[targetLang] || 'English';
+          
+          console.log(`\n🔄 Translating to ${targetLangName}...`);
+          
+          const translation = await groq.chat.completions.create({
+            model: "llama-3.3-70b-versatile",
+            messages: [
+              { 
+                role: "system", 
+                content: `You are a professional translator. Translate the given text to ${targetLangName}. Only provide the translation, no explanations.` 
+              },
+              { 
+                role: "user", 
+                content: text 
+              }
+            ],
+            temperature: 0.3,
+            max_tokens: 1024
+          });
+
+          const translatedText = translation.choices[0].message.content;
+          console.log(`✅ Translated to ${targetLangName}: "${translatedText}"`);
+          
+          // Send to all participants who need this language
+          let sentCount = 0;
+          participants.forEach(participant => {
+            const participantSocket = io.sockets.sockets.get(participant.id);
+            if (participantSocket) {
+              participantSocket.emit('participant-translation', {
+                original: text,
+                translated: translatedText,
+                targetLanguage: targetLang,
+                targetLanguageName: targetLangName,
+                speakerName: speakerName
+              });
+              sentCount++;
+              console.log(`   📤 Sent to ${participant.name} (${participant.id})`);
+            } else {
+              console.log(`   ⚠️ Socket not found for ${participant.name} (${participant.id})`);
+            }
+          });          
+          console.log(`✅ Sent ${targetLangName} translation to ${sentCount}/${participants.length} participants`);
+        } catch (err) {
+          console.error(`❌ Error translating to ${targetLang}:`, err.message);
+        }
+      });
+
+      await Promise.all(translationPromises);
+
+      // Delete temp file
+      fs.unlinkSync(tempFilePath);
+      console.log(`\n✅ CONTINUOUS AUDIO PROCESSING COMPLETE`);
+      console.log(`${'='.repeat(60)}\n`);
+
+    } catch (err) {
+      console.error("❌ Error processing continuous audio:", err);
+      console.error("   Stack:", err.stack);
+    }
+  });
+
+  socket.on('join-room', ({ roomId, passcode, participantName, participantEmail, isHost, translationLanguage }) => {
+    console.log(`👤 ${participantName} (${socket.id}) attempting to join room ${roomId} as ${isHost ? 'ADMIN' : 'PARTICIPANT'} with translation: ${translationLanguage || 'none'}`);
     
     const room = rooms.get(roomId);
     
@@ -154,7 +443,7 @@ io.on("connection", socket => {
       console.log(`👑 ${participantName} is now the admin of room ${roomId}`);
     }
     
-    // Add participant to room
+    // Add participant to room with translation language
     const participant = {
       id: socket.id,
       name: participantName,
@@ -164,6 +453,7 @@ io.on("connection", socket => {
       isAudioEnabled: true,
       isScreenSharing: false,
       hasRaisedHand: false,
+      translationLanguage: translationLanguage || 'en', // Store user's preferred language
       joinedAt: new Date().toISOString()
     };
     
@@ -459,6 +749,13 @@ io.on("connection", socket => {
   socket.on("disconnect", () => {
     console.log(`🔌 Client disconnected: ${socket.id}`);
     
+    // Clean up any temp files for this socket
+    try {
+      const files = fs.readdirSync('.');
+      files.filter(f => f.startsWith(`temp_${socket.id}`) && f.endsWith('.wav'))
+           .forEach(f => { try { fs.unlinkSync(f); } catch (e) {} });
+    } catch (e) {}
+    
     const userInfo = userSockets.get(socket.id);
     if (userInfo) {
       const { roomId, participant } = userInfo;
@@ -517,6 +814,7 @@ const PORT = process.env.PORT || 5001;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log("📹 WebRTC signaling server ready - ADMIN PRIVILEGES ENABLED");
+  console.log("🎤 Audio translation powered by Groq (Whisper + Llama 3.3)");
   console.log("👑 Admin can remove participants and end meetings");
   console.log("💬 Chat and reactions enabled");
   console.log("🖐️ Raise hand functionality enabled");

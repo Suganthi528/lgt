@@ -1,4 +1,11 @@
 {
+  "name": "video-meet",
+  "version": "1.0.0",
+  "scripts": {
+    "server": "cd server && npm start",
+    "client": "cd client && npm start",
+    "install-all": "cd server && npm install && cd ../client && npm install"
+  },
   "dependencies": {
     "react-router-dom": "^7.11.0"
   }

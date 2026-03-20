@@ -1,6 +1,0 @@
-# Ignore environment files
-server/.env
-
-# Ignore node_modules
-server/node_modules/
-client/node_modules/

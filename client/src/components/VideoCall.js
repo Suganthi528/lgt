@@ -143,8 +143,12 @@ function VideoCall() {
       
       // Initialize socket connection
       socketRef.current = io(SOCKET_URL, {
-        forceNew: true, // Force new connection
-        transports: ['websocket', 'polling']
+        forceNew: true,
+        transports: ['websocket', 'polling'],
+        timeout: 20000,
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000
       });
       
       // Get user media with enhanced audio settings

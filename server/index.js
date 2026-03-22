@@ -5,59 +5,69 @@ import cors from "cors";
 import dotenv from "dotenv";
 import Groq from "groq-sdk";
 import fs from "fs";
+import os from "os";
+import path from "path";
 
 dotenv.config();
 
 const app = express();
 
-// CORS configuration for production
+// Always allow both local dev and Render production origins
+const ALLOWED_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://video-meet-client.onrender.com',
+  'https://video-meet-aj54.onrender.com'
+];
+
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? [
-        'https://video-meet-aj54.onrender.com', 
-        'https://video-meet-client.onrender.com',
-        'http://localhost:3000', 
-        'http://localhost:3001'
-      ]
-    : "*",
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS blocked: ${origin}`));
+  },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"]
 };
 
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.NODE_ENV === 'production' 
-      ? [
-          'https://video-meet-aj54.onrender.com', 
-          'https://video-meet-client.onrender.com',
-          'http://localhost:3000', 
-          'http://localhost:3001'
-        ]
-      : "*",
+    origin: ALLOWED_ORIGINS,
     methods: ["GET", "POST"],
     credentials: true
-  }
+  },
+  // Increase limits for audio data
+  maxHttpBufferSize: 10 * 1024 * 1024 // 10MB
 });
 
 // Initialize Groq
+if (!process.env.GROQ_API_KEY) {
+  console.error('❌ GROQ_API_KEY is not set! Translation will not work.');
+} else {
+  console.log('✅ GROQ_API_KEY loaded');
+}
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY
 });
 
+// Use OS temp directory for audio files (works on Render and locally)
+const TEMP_DIR = os.tmpdir();
+
 // Clean up any leftover temp files from previous sessions
 const cleanupTempFiles = () => {
   try {
-    const files = fs.readdirSync('.');
-    const tempFiles = files.filter(f => f.startsWith('temp_') && f.endsWith('.wav'));
+    const files = fs.readdirSync(TEMP_DIR);
+    const tempFiles = files.filter(f => f.startsWith('vm_temp_') && f.endsWith('.wav'));
     if (tempFiles.length > 0) {
       tempFiles.forEach(f => {
-        try { fs.unlinkSync(f); } catch (e) {}
+        try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch (e) {}
       });
       console.log(`🧹 Cleaned up ${tempFiles.length} leftover temp files`);
     }
@@ -68,6 +78,16 @@ cleanupTempFiles();
 // Store rooms and their participants
 const rooms = new Map();
 const userSockets = new Map();
+
+// Health check endpoint (keeps Render service alive)
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    groqConfigured: !!process.env.GROQ_API_KEY,
+    rooms: rooms.size,
+    uptime: process.uptime()
+  });
+});
 
 // Room management endpoints
 app.post('/api/rooms', (req, res) => {
@@ -149,7 +169,7 @@ io.on("connection", socket => {
       
       // Convert base64 audio to file
       const buffer = Buffer.from(audio.split(",")[1], "base64");
-      const tempFilePath = `temp_${socket.id}_${Date.now()}.wav`;
+      const tempFilePath = path.join(TEMP_DIR, `vm_temp_${socket.id}_${Date.now()}.wav`);
       fs.writeFileSync(tempFilePath, buffer);
       console.log(`✅ Audio file created: ${tempFilePath} (${buffer.length} bytes)`);
 
@@ -258,7 +278,7 @@ io.on("connection", socket => {
       }
 
       const buffer = Buffer.from(audio.split(",")[1], "base64");
-      const tempFilePath = `temp_${socket.id}_${Date.now()}.wav`;
+      const tempFilePath = path.join(TEMP_DIR, `vm_temp_${socket.id}_${Date.now()}.wav`);
       fs.writeFileSync(tempFilePath, buffer);
       console.log(`✅ Audio file created: ${tempFilePath} (${buffer.length} bytes)`);
 
@@ -751,9 +771,9 @@ io.on("connection", socket => {
     
     // Clean up any temp files for this socket
     try {
-      const files = fs.readdirSync('.');
-      files.filter(f => f.startsWith(`temp_${socket.id}`) && f.endsWith('.wav'))
-           .forEach(f => { try { fs.unlinkSync(f); } catch (e) {} });
+      const files = fs.readdirSync(TEMP_DIR);
+      files.filter(f => f.startsWith(`vm_temp_${socket.id}`) && f.endsWith('.wav'))
+           .forEach(f => { try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch (e) {} });
     } catch (e) {}
     
     const userInfo = userSockets.get(socket.id);

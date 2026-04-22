@@ -72,6 +72,19 @@ function CreateRoom() {
 
       if (response.ok) {
         console.log('✅ Room created successfully');
+        // Save room to localStorage so it shows in Upcoming Meetings on this device
+        const savedRooms = JSON.parse(localStorage.getItem('createdRooms') || '[]');
+        savedRooms.push({
+          id: formData.roomId,
+          creatorName: formData.creatorName,
+          meetingDate: formData.meetingDate,
+          meetingTime: formData.meetingTime,
+          meetingEndTime: formData.meetingEndTime || null,
+          participantCount: 0,
+          createdAt: new Date().toISOString()
+        });
+        localStorage.setItem('createdRooms', JSON.stringify(savedRooms));
+
         // Room created successfully, navigate to the room
         navigate(`/room/${formData.roomId}`, {
           state: {

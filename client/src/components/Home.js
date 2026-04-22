@@ -23,11 +23,22 @@ function Home() {
     console.log('📅 Fetching upcoming events from:', API_BASE);
     try {
       const response = await fetch(`${API_BASE}/rooms`);
-      const rooms = await response.json();
-      console.log('✅ Fetched rooms:', rooms.length);
-      setUpcomingEvents(rooms);
+      const serverRooms = await response.json();
+      console.log('✅ Fetched rooms from server:', serverRooms.length);
+
+      // Merge with locally saved rooms (created on this device)
+      const localRooms = JSON.parse(localStorage.getItem('createdRooms') || '[]');
+      const serverIds = new Set(serverRooms.map(r => r.id));
+      // Only add local rooms that aren't already in the server response
+      const localOnly = localRooms.filter(r => !serverIds.has(r.id));
+      const merged = [...serverRooms, ...localOnly];
+
+      setUpcomingEvents(merged);
     } catch (error) {
       console.error('❌ Error fetching rooms:', error);
+      // Fallback to local rooms if server is unreachable
+      const localRooms = JSON.parse(localStorage.getItem('createdRooms') || '[]');
+      setUpcomingEvents(localRooms);
     } finally {
       setEventsLoading(false);
     }

@@ -418,52 +418,28 @@
 }
 
 .event-card {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  padding: 25px;
-  backdrop-filter: blur(15px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 16px;
+  padding: 24px 28px;
+  color: #1a1a2e;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
   transition: all 0.3s ease;
 }
 
 .event-card:hover {
   transform: translateY(-5px);
-  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
-  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
 }
 
-.event-header {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  margin-bottom: 20px;
-}
-
-.event-icon {
-  font-size: 2rem;
-  background: linear-gradient(45deg, #e74c3c, #c0392b);
-  border-radius: 50%;
-  width: 50px;
-  height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.event-info h3 {
-  margin: 0 0 5px 0;
-  color: #ecf0f1;
-  font-size: 1.3rem;
-}
-
-.host-name {
-  color: #bdc3c7;
-  margin: 0;
-  font-size: 0.9rem;
+.event-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin: 0 0 16px 0;
 }
 
 .event-details {
-  margin: 20px 0;
+  margin-bottom: 20px;
 }
 
 .detail-item {
@@ -471,7 +447,8 @@
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
-  color: #bdc3c7;
+  color: #444;
+  font-size: 0.95rem;
 }
 
 .detail-icon {
@@ -479,10 +456,50 @@
   width: 20px;
 }
 
-.event-join-btn {
-  width: 100%;
-  justify-content: center;
-  margin-top: 20px;
+.event-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-join {
+  flex: 1;
+  min-width: 140px;
+  padding: 12px 16px;
+  border-radius: 50px;
+  text-align: center;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+  letter-spacing: 0.5px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  border: none;
+  display: inline-block;
+}
+
+.btn-join-admin {
+  background: linear-gradient(135deg, #4a90e2, #357abd);
+  color: white;
+  box-shadow: 0 4px 15px rgba(74, 144, 226, 0.4);
+}
+
+.btn-join-admin:hover {
+  background: linear-gradient(135deg, #357abd, #2868a9);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(74, 144, 226, 0.6);
+}
+
+.btn-join-participant {
+  background: linear-gradient(135deg, #e040fb, #ab47bc);
+  color: white;
+  box-shadow: 0 4px 15px rgba(224, 64, 251, 0.4);
+}
+
+.btn-join-participant:hover {
+  background: linear-gradient(135deg, #ab47bc, #8e24aa);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(224, 64, 251, 0.6);
 }
 
 /* Footer */

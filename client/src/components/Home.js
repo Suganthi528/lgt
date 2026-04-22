@@ -160,36 +160,43 @@ function Home() {
           <div className="events-list">
             {upcomingEvents.map((event) => (
               <div key={event.id} className="event-card reveal">
-                <div className="event-header">
-                  <div className="event-icon">🎯</div>
-                  <div className="event-info">
-                    <h3>Room: {event.id}</h3>
-                    <p className="host-name">Hosted by {event.creatorName}</p>
-                  </div>
-                </div>
+                <h3 className="event-title">{event.creatorName}'s Meeting</h3>
                 <div className="event-details">
                   <div className="detail-item">
                     <span className="detail-icon">📅</span>
-                    <span>{event.meetingDate}</span>
+                    <span>Date: {event.meetingDate}</span>
                   </div>
                   <div className="detail-item">
                     <span className="detail-icon">🕒</span>
-                    <span>{event.meetingTime}</span>
+                    <span>Time: {event.meetingTime}{event.meetingEndTime ? ` – ${event.meetingEndTime}` : ''}</span>
                   </div>
                   <div className="detail-item">
-                    <span className="detail-icon">👥</span>
-                    <span>{event.participantCount} participants</span>
+                    <span className="detail-icon">👤</span>
+                    <span>Host: {event.creatorName}</span>
+                  </div>
+                  <div className="detail-item">
+                    <span className="detail-icon">🔗</span>
+                    <span>Room ID: {event.id}</span>
                   </div>
                 </div>
-                <Link
-                  to="/join-room"
-                  state={{ roomId: event.id }}
-                  className="btn btn-outline event-join-btn ripple-host"
-                  onClick={ripple}
-                >
-                  <span className="btn-icon">🚀</span>
-                  Join Meeting
-                </Link>
+                <div className="event-actions">
+                  <Link
+                    to="/join-room"
+                    state={{ roomId: event.id, isHost: true }}
+                    className="btn-join btn-join-admin ripple-host"
+                    onClick={ripple}
+                  >
+                    Join as Admin
+                  </Link>
+                  <Link
+                    to="/join-room"
+                    state={{ roomId: event.id, isHost: false }}
+                    className="btn-join btn-join-participant ripple-host"
+                    onClick={ripple}
+                  >
+                    Join as Participant
+                  </Link>
+                </div>
               </div>
             ))}
           </div>

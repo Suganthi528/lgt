@@ -17,7 +17,8 @@ const ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'http://localhost:3001',
   'https://video-meet-client.onrender.com',
-  'https://video-meet-aj54.onrender.com'
+  'https://video-meet-aj54.onrender.com',
+  'https://lgt-2.onrender.com'
 ];
 
 const corsOptions = {

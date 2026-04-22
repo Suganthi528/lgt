@@ -48,14 +48,13 @@ const io = new Server(server, {
 });
 
 // Initialize Groq
+let groq = null;
 if (!process.env.GROQ_API_KEY) {
   console.error('❌ GROQ_API_KEY is not set! Translation will not work.');
 } else {
   console.log('✅ GROQ_API_KEY loaded');
+  groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 }
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY
-});
 
 // Use OS temp directory for audio files (works on Render and locally)
 const TEMP_DIR = os.tmpdir();
@@ -93,8 +92,37 @@ app.get('/health', (req, res) => {
 });
 
 // Room management endpoints
+// Store auto-end timers per room
+const roomEndTimers = new Map();
+
+const scheduleRoomEnd = (roomId, meetingDate, meetingEndTime) => {
+  if (!meetingDate || !meetingEndTime) return;
+  try {
+    const endDateTime = new Date(`${meetingDate}T${meetingEndTime}:00`);
+    const now = new Date();
+    const msUntilEnd = endDateTime - now;
+    if (msUntilEnd <= 0) return; // already past
+    console.log(`⏰ Room ${roomId} will auto-end in ${Math.round(msUntilEnd/60000)} minutes`);
+    const timer = setTimeout(() => {
+      const room = rooms.get(roomId);
+      if (!room) return;
+      console.log(`⏰ Auto-ending room ${roomId} at scheduled time`);
+      io.to(roomId).emit('meeting-ended', {
+        reason: 'Scheduled end time reached',
+        message: 'The meeting has ended as scheduled by the host.'
+      });
+      room.participants.forEach(p => { userSockets.delete(p.id); });
+      rooms.delete(roomId);
+      roomEndTimers.delete(roomId);
+    }, msUntilEnd);
+    roomEndTimers.set(roomId, timer);
+  } catch (e) {
+    console.error('Error scheduling room end:', e);
+  }
+};
+
 app.post('/api/rooms', (req, res) => {
-  const { creatorName, creatorEmail, roomId, passcode, meetingDate, meetingTime } = req.body;
+  const { creatorName, creatorEmail, roomId, passcode, meetingDate, meetingTime, meetingEndTime } = req.body;
   
   console.log('📥 Room creation request:', { roomId, creatorName, creatorEmail });
   
@@ -110,7 +138,8 @@ app.post('/api/rooms', (req, res) => {
     creatorEmail,
     meetingDate,
     meetingTime,
-    adminId: null, // Will be set when admin joins
+    meetingEndTime: meetingEndTime || null,
+    adminId: null,
     participants: [],
     chatMessages: [],
     reactions: [],
@@ -119,6 +148,12 @@ app.post('/api/rooms', (req, res) => {
   };
   
   rooms.set(roomId, room);
+
+  // Schedule auto-end if end time provided
+  if (meetingEndTime) {
+    scheduleRoomEnd(roomId, meetingDate, meetingEndTime);
+  }
+
   console.log(`✅ Room created: ${roomId} by ${creatorName}`);
   console.log(`📊 Total rooms in memory: ${rooms.size}`);
   res.json({ success: true, room });
@@ -131,6 +166,7 @@ app.get('/api/rooms', (req, res) => {
     creatorName: room.creatorName,
     meetingDate: room.meetingDate,
     meetingTime: room.meetingTime,
+    meetingEndTime: room.meetingEndTime || null,
     participantCount: room.participants.length,
     createdAt: room.createdAt
   }));
@@ -155,9 +191,36 @@ app.post('/api/rooms/:roomId/verify', (req, res) => {
     console.log(`❌ Invalid passcode for room ${roomId}`);
     return res.status(401).json({ error: 'Invalid passcode' });
   }
+
+  // Check if meeting has started (optional - allow early join by default)
+  // Uncomment to enforce strict start time:
+  // if (room.meetingDate && room.meetingTime) {
+  //   try {
+  //     const startDt = new Date(`${room.meetingDate}T${room.meetingTime}:00`);
+  //     const now = new Date();
+  //     if (now < startDt) {
+  //       const minutesUntil = Math.ceil((startDt - now) / 60000);
+  //       return res.status(403).json({ 
+  //         error: `Meeting hasn't started yet. Starts in ${minutesUntil} minute(s).`,
+  //         startsAt: startDt.toISOString()
+  //       });
+  //     }
+  //   } catch (e) {
+  //     console.error('Error parsing meeting time:', e);
+  //   }
+  // }
   
   console.log(`✅ Room ${roomId} verified successfully`);
-  res.json({ success: true });
+  res.json({ 
+    success: true,
+    room: {
+      id: room.id,
+      creatorName: room.creatorName,
+      meetingDate: room.meetingDate,
+      meetingTime: room.meetingTime,
+      meetingEndTime: room.meetingEndTime
+    }
+  });
 });
 
 io.on("connection", socket => {
@@ -166,6 +229,14 @@ io.on("connection", socket => {
   // Audio transcription and translation
   socket.on("send-audio", async (audioData) => {
     try {
+      if (!groq) {
+        socket.emit("transcription-error", { 
+          error: "Translation service not configured",
+          details: "GROQ_API_KEY is not set" 
+        });
+        return;
+      }
+
       console.log(`🎤 Received audio from ${socket.id}`);
       
       const { audio, targetLanguage = 'es' } = audioData;
@@ -253,6 +324,11 @@ io.on("connection", socket => {
   // Continuous audio translation - broadcasts to all participants
   socket.on("continuous-audio", async (audioData) => {
     try {
+      if (!groq) {
+        console.log(`❌ Translation service not configured`);
+        return;
+      }
+
       const { audio, roomId, speakerName } = audioData;
 
       const room = rooms.get(roomId);
@@ -449,7 +525,8 @@ io.on("connection", socket => {
           adminId: room.adminId,
           participants: existingParticipants,
           chatMessages: room.chatMessages || [],
-          raisedHands: room.raisedHands || []
+          raisedHands: room.raisedHands || [],
+          whiteboardStrokes: room.whiteboardStrokes || []
         },
         isAdmin: existingParticipant.isAdmin
       });
@@ -474,7 +551,8 @@ io.on("connection", socket => {
           adminId: room.adminId,
           participants: existingParticipants,
           chatMessages: room.chatMessages || [],
-          raisedHands: room.raisedHands || []
+          raisedHands: room.raisedHands || [],
+          whiteboardStrokes: room.whiteboardStrokes || []
         },
         isAdmin: reconnecting.isAdmin
       });
@@ -523,7 +601,8 @@ io.on("connection", socket => {
         adminId: room.adminId,
         participants: existingParticipants, // CRITICAL: Only existing participants
         chatMessages: room.chatMessages || [],
-        raisedHands: room.raisedHands || []
+        raisedHands: room.raisedHands || [],
+        whiteboardStrokes: room.whiteboardStrokes || []
       },
       isAdmin: participant.isAdmin
     });
@@ -661,6 +740,7 @@ io.on("connection", socket => {
     
     // Clean up room
     rooms.delete(roomId);
+    if (roomEndTimers.has(roomId)) { clearTimeout(roomEndTimers.get(roomId)); roomEndTimers.delete(roomId); }
     console.log(`🗑️ Room ${roomId} deleted by admin`);
   });
 
@@ -770,6 +850,46 @@ io.on("connection", socket => {
     }
   });
 
+  // Update participant language during meeting
+  socket.on('update-language', ({ translationLanguage }) => {
+    const userInfo = userSockets.get(socket.id);
+    if (!userInfo) return;
+    const { roomId, participant } = userInfo;
+    const room = rooms.get(roomId);
+    if (!room) return;
+    
+    // Update participant's translation language in room
+    const roomParticipant = room.participants.find(p => p.id === socket.id);
+    if (roomParticipant) {
+      roomParticipant.translationLanguage = translationLanguage;
+      console.log(`🌐 ${participant.name} changed translation language to: ${translationLanguage}`);
+    }
+  });
+
+  // Collaborative whiteboard
+  socket.on('whiteboard-draw', (data) => {
+    const userInfo = userSockets.get(socket.id);
+    if (!userInfo) return;
+    const { roomId } = userInfo;
+    const room = rooms.get(roomId);
+    if (!room) return;
+    // Persist strokes so late joiners get the full board
+    if (!room.whiteboardStrokes) room.whiteboardStrokes = [];
+    room.whiteboardStrokes.push(data);
+    // Broadcast to everyone else in the room
+    socket.to(roomId).emit('whiteboard-draw', data);
+  });
+
+  socket.on('whiteboard-clear', () => {
+    const userInfo = userSockets.get(socket.id);
+    if (!userInfo) return;
+    const { roomId } = userInfo;
+    const room = rooms.get(roomId);
+    if (!room) return;
+    room.whiteboardStrokes = [];
+    io.to(roomId).emit('whiteboard-clear');
+  });
+
   // Get room stats
   socket.on('get-room-stats', () => {
     const userInfo = userSockets.get(socket.id);
@@ -836,6 +956,7 @@ io.on("connection", socket => {
           
           // Delete the room
           rooms.delete(roomId);
+          if (roomEndTimers.has(roomId)) { clearTimeout(roomEndTimers.get(roomId)); roomEndTimers.delete(roomId); }
           console.log(`🗑️ Room ${roomId} deleted - Admin left`);
         } else {
           // Regular participant leaving

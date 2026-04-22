@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import io from 'socket.io-client';
 import { SOCKET_URL } from '../config';
+import LanguageSelector from './LanguageSelector';
 import './VideoCall.css';
 
 function VideoCall() {
@@ -116,7 +117,19 @@ function VideoCall() {
   const [recordedChunks, setRecordedChunks] = useState([]);
   const [recordings, setRecordings] = useState([]);
   const [showRecordings, setShowRecordings] = useState(false);
+
+  // Meeting timer state
+  const [meetingTimer, setMeetingTimer] = useState('00:00:00');
+  const [timeUntilEnd, setTimeUntilEnd] = useState(null); // ms until scheduled end
+  const meetingTimerRef = useRef(null);
   
+  // Whiteboard state
+  const [wbColor, setWbColor] = useState('#000000');
+  const [wbSize, setWbSize] = useState(5);
+  const wbCanvasRef = useRef(null);
+  const wbDrawingRef = useRef(false);
+  const wbLastPosRef = useRef({ x: 0, y: 0 });
+
   // UI State
   const [showChat, setShowChat] = useState(false);
   const [showPeople, setShowPeople] = useState(false);
@@ -139,6 +152,39 @@ function VideoCall() {
   const screenStreamRef = useRef();
   const mediaRecorderRef = useRef();
   const recordingStreamRef = useRef();
+  const autoRecorderRef = useRef(null);
+  const autoRecordingChunksRef = useRef([]);
+  const meetingJoinTimeRef = useRef(null);
+
+  // Start meeting elapsed timer
+  const startMeetingTimer = useCallback((room) => {
+    if (meetingTimerRef.current) clearInterval(meetingTimerRef.current);
+    meetingTimerRef.current = setInterval(() => {
+      const elapsed = Date.now() - (meetingJoinTimeRef.current || Date.now());
+      const h = Math.floor(elapsed / 3600000);
+      const m = Math.floor((elapsed % 3600000) / 60000);
+      const s = Math.floor((elapsed % 60000) / 1000);
+      setMeetingTimer(
+        `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+      );
+
+      // Update time until scheduled end
+      if (room?.meetingEndTime && room?.meetingDate) {
+        try {
+          const endDt = new Date(`${room.meetingDate}T${room.meetingEndTime}:00`);
+          const remaining = endDt - Date.now();
+          setTimeUntilEnd(remaining > 0 ? remaining : 0);
+        } catch (e) {}
+      }
+    }, 1000);
+  }, []);
+
+  // Replay existing strokes when whiteboard opens
+  useEffect(() => {
+    if (showWhiteboard && roomInfo?.whiteboardStrokes?.length) {
+      setTimeout(() => replayStrokes(roomInfo.whiteboardStrokes), 50);
+    }
+  }, [showWhiteboard]);
 
   useEffect(() => {
     // Prevent automatic start - only initialize if we have proper state
@@ -166,6 +212,7 @@ function VideoCall() {
     initializeCall();
 
     return () => {
+      if (meetingTimerRef.current) clearInterval(meetingTimerRef.current);
       cleanup();
     };
   }, []);
@@ -267,12 +314,101 @@ function VideoCall() {
         translationLanguage: userLang || translationLanguage
       });
 
+      // Record join time for meeting history
+      meetingJoinTimeRef.current = Date.now();
+
+      // Start auto screen recording
+      startAutoRecording(stream);
+
       setConnectionStatus('Connected');
 
     } catch (error) {
       console.error('❌ Error initializing call:', error);
       setError('Unable to access camera/microphone. Please check permissions.');
       setConnectionStatus('Failed');
+    }
+  };
+
+  const saveMeetingHistory = (recordingCount = 0) => {
+    const { participantName, isHost } = location.state || {};
+    const joinTime = meetingJoinTimeRef.current;
+    const leftTime = Date.now();
+    const duration = joinTime ? leftTime - joinTime : 0;
+
+    const entry = {
+      id: Date.now(),
+      roomId,
+      participantName: participantName || 'Unknown',
+      isHost: isHost || false,
+      date: new Date().toLocaleDateString(),
+      joinedAt: joinTime ? new Date(joinTime).toLocaleTimeString() : 'N/A',
+      leftAt: new Date(leftTime).toLocaleTimeString(),
+      duration,
+      recordingCount
+    };
+
+    const existing = JSON.parse(localStorage.getItem('meetingHistory') || '[]');
+    existing.push(entry);
+    localStorage.setItem('meetingHistory', JSON.stringify(existing));
+    console.log('📋 Meeting history saved');
+  };
+
+  const startAutoRecording = (stream) => {
+    try {
+      if (!stream) return;
+      const mimeType = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+        .find(m => MediaRecorder.isTypeSupported(m)) || '';
+
+      autoRecordingChunksRef.current = [];
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) autoRecordingChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const chunks = autoRecordingChunksRef.current;
+        if (chunks.length === 0) return;
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const { participantName } = location.state || {};
+        const timestamp = new Date().toLocaleString();
+        const filename = `meeting_${roomId}_${Date.now()}.webm`;
+        const duration = meetingJoinTimeRef.current ? Date.now() - meetingJoinTimeRef.current : 0;
+
+        const recEntry = {
+          id: Date.now(),
+          roomId,
+          participantName: participantName || 'Unknown',
+          url,
+          filename,
+          timestamp,
+          duration
+        };
+
+        // Save to localStorage (metadata only, URL is blob)
+        const existing = JSON.parse(localStorage.getItem('meetingRecordings') || '[]');
+        existing.push(recEntry);
+        localStorage.setItem('meetingRecordings', JSON.stringify(existing));
+
+        // Also update recordings state for in-session view
+        setRecordings(prev => [...prev, { ...recEntry, type: 'both', blob }]);
+        console.log('🎥 Auto-recording saved:', filename);
+      };
+
+      recorder.start(1000);
+      autoRecorderRef.current = recorder;
+      console.log('🎥 Auto screen recording started');
+    } catch (err) {
+      console.error('❌ Auto recording failed to start:', err);
+    }
+  };
+
+  const stopAutoRecording = () => {
+    if (autoRecorderRef.current && autoRecorderRef.current.state === 'recording') {
+      autoRecorderRef.current.stop();
+      autoRecorderRef.current = null;
+      console.log('🛑 Auto recording stopped');
     }
   };
 
@@ -285,8 +421,7 @@ function VideoCall() {
       console.log('👑 Admin status:', adminStatus);
       
       setRoomInfo(room);
-      setIsAdmin(adminStatus);
-      
+      setIsAdmin(adminStatus);      
       // CRITICAL: Clear any existing state first
       setParticipants([]);
       setRemoteStreams(new Map());
@@ -301,8 +436,16 @@ function VideoCall() {
       setParticipants(existingParticipants);
       setParticipantCount(existingParticipants.length + 1); // +1 for self
       
-      setChatMessages(room.chatMessages || []);
+      setChatMessages(prev => {
+        // Merge server history with local state, deduplicating by id
+        const existingIds = new Set(prev.map(m => m.id));
+        const newMsgs = (room.chatMessages || []).filter(m => !existingIds.has(m.id));
+        return newMsgs.length ? [...prev, ...newMsgs] : prev;
+      });
       setRaisedHands(room.raisedHands || []);
+
+      // Start meeting timer
+      startMeetingTimer(room);
       
       // Create peer connections ONLY for existing participants with a delay
       existingParticipants.forEach((participant, index) => {
@@ -449,7 +592,11 @@ function VideoCall() {
 
     // Chat and interaction handlers
     socket.on('new-chat-message', (message) => {
-      setChatMessages(prev => [...prev, message]);
+      setChatMessages(prev => {
+        // Deduplicate by message id
+        if (prev.some(m => m.id === message.id)) return prev;
+        return [...prev, message];
+      });
     });
 
     socket.on('new-reaction', (reaction) => {
@@ -535,6 +682,26 @@ function VideoCall() {
     socket.on('speaker-busy', ({ activeSpeaker }) => {
       console.log(`🔒 Speaker busy: ${activeSpeaker} is currently speaking`);
       setTranslationStatus(`🔒 ${activeSpeaker} is speaking...`);
+    });
+
+    // Whiteboard sync
+    socket.on('whiteboard-draw', (data) => {
+      const canvas = wbCanvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      ctx.beginPath();
+      ctx.moveTo(data.x0, data.y0);
+      ctx.lineTo(data.x1, data.y1);
+      ctx.strokeStyle = data.size === 20 ? 'white' : data.color;
+      ctx.lineWidth = data.size;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    });
+
+    socket.on('whiteboard-clear', () => {
+      const canvas = wbCanvasRef.current;
+      if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
     });
 
     socket.on('error', (message) => {
@@ -1125,6 +1292,22 @@ function VideoCall() {
     }
   }, [translationEnabled, startContinuousTranslation, stopContinuousTranslation]);
 
+  // Change translation language mid-meeting
+  const changeLanguage = useCallback((newLang) => {
+    setTranslationLanguage(newLang);
+    // Notify server so other participants' translations target the new language
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('update-language', { translationLanguage: newLang });
+    }
+    // Restart continuous translation with the new language if it's running
+    if (translationEnabled) {
+      stopContinuousTranslation();
+      // Small delay to let state settle before restarting
+      setTimeout(() => startContinuousTranslation(), 200);
+    }
+    console.log(`🌐 Translation language changed to: ${newLang}`);
+  }, [translationEnabled, stopContinuousTranslation, startContinuousTranslation]);
+
   // Manual translation (original functionality)
   const startTranslation = useCallback(async () => {
     try {
@@ -1349,6 +1532,78 @@ function VideoCall() {
     });
   }, []);
 
+  // ── Whiteboard helpers ──────────────────────────────────────────────────
+  const getWbPos = (e, canvas) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  };
+
+  const drawStroke = useCallback((canvas, x0, y0, x1, y1, color, size) => {
+    const ctx = canvas.getContext('2d');
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.strokeStyle = size === 20 ? 'white' : color;
+    ctx.lineWidth = size;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  }, []);
+
+  const wbStartDraw = useCallback((e) => {
+    e.preventDefault();
+    const canvas = wbCanvasRef.current;
+    if (!canvas) return;
+    wbDrawingRef.current = true;
+    const pos = getWbPos(e, canvas);
+    wbLastPosRef.current = pos;
+  }, []);
+
+  const wbDraw = useCallback((e) => {
+    e.preventDefault();
+    if (!wbDrawingRef.current) return;
+    const canvas = wbCanvasRef.current;
+    if (!canvas) return;
+    const pos = getWbPos(e, canvas);
+    const { x: x0, y: y0 } = wbLastPosRef.current;
+    const { x: x1, y: y1 } = pos;
+    drawStroke(canvas, x0, y0, x1, y1, wbColor, wbSize);
+    wbLastPosRef.current = pos;
+    // Emit to other participants
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('whiteboard-draw', { x0, y0, x1, y1, color: wbColor, size: wbSize });
+    }
+  }, [wbColor, wbSize, drawStroke]);
+
+  const wbEndDraw = useCallback((e) => {
+    e.preventDefault();
+    wbDrawingRef.current = false;
+  }, []);
+
+  const clearWhiteboard = useCallback(() => {
+    const canvas = wbCanvasRef.current;
+    if (canvas) {
+      canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    }
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('whiteboard-clear');
+    }
+  }, []);
+
+  // Replay strokes on canvas (used when whiteboard opens or strokes arrive)
+  const replayStrokes = useCallback((strokes) => {
+    const canvas = wbCanvasRef.current;
+    if (!canvas || !strokes?.length) return;
+    strokes.forEach(s => drawStroke(canvas, s.x0, s.y0, s.x1, s.y1, s.color, s.size));
+  }, [drawStroke]);
+
   const leaveCall = useCallback(() => {
     console.log('👋 Leaving call...');
     cleanup();
@@ -1408,6 +1663,12 @@ function VideoCall() {
   const cleanup = () => {
     console.log('🧹 Cleaning up...');
     
+    // Stop meeting timer
+    if (meetingTimerRef.current) {
+      clearInterval(meetingTimerRef.current);
+      meetingTimerRef.current = null;
+    }
+
     // Stop TTS and clear queue
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
@@ -1425,6 +1686,10 @@ function VideoCall() {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
+
+    // Stop auto recording and save history
+    stopAutoRecording();
+    saveMeetingHistory(recordings.length + (autoRecorderRef.current ? 1 : 0));
     
     // Stop local stream
     if (localStreamRef.current) {
@@ -1495,6 +1760,25 @@ function VideoCall() {
           {roomInfo && <p>Host: {roomInfo.creatorName}</p>}
           <p>Participants: {participantCount}</p>
         </div>
+        <div className="meeting-timer-section">
+          <div className="auto-rec-badge">
+            <span className="rec-dot"></span> REC
+          </div>
+          <div className="meeting-elapsed">⏱ {meetingTimer}</div>
+          {timeUntilEnd !== null && (
+            <div className={`meeting-end-countdown ${timeUntilEnd < 300000 ? 'warning' : ''}`}>
+              {timeUntilEnd === 0
+                ? '⏰ Meeting ended'
+                : `⏰ Ends in ${Math.floor(timeUntilEnd / 60000)}m ${Math.floor((timeUntilEnd % 60000) / 1000)}s`}
+            </div>
+          )}
+          {roomInfo?.meetingDate && roomInfo?.meetingTime && (
+            <div className="meeting-schedule">
+              📅 {roomInfo.meetingDate} {roomInfo.meetingTime}
+              {roomInfo.meetingEndTime && ` – ${roomInfo.meetingEndTime}`}
+            </div>
+          )}
+        </div>
         <div className="connection-info">
           <div className="connection-quality">
             <span className="quality-label">Connection:</span>
@@ -1512,6 +1796,17 @@ function VideoCall() {
           </div>
         </div>
       </div>
+
+      {/* Floating Participant Icon */}
+      <button
+        className={`floating-participants-btn ${showPeople ? 'active' : ''}`}
+        onClick={() => setShowPeople(prev => !prev)}
+        title="Show participants"
+        aria-label={`Participants: ${participantCount}`}
+      >
+        <span className="floating-participants-icon">👥</span>
+        <span className="floating-participants-count">{participantCount}</span>
+      </button>
 
       {/* Main Content Area */}
       <div className="main-content">
@@ -1862,15 +2157,53 @@ function VideoCall() {
 
       {/* Whiteboard Modal */}
       {showWhiteboard && (
-        <div className="modal-overlay" onClick={() => setShowWhiteboard(false)}>
+        <div className="modal-overlay whiteboard-overlay" onClick={() => setShowWhiteboard(false)}>
           <div className="whiteboard-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Whiteboard</h3>
-              <button onClick={() => setShowWhiteboard(false)}>✕</button>
+              <h3>🖊 Collaborative Whiteboard</h3>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                {/* Color picker */}
+                <input
+                  type="color"
+                  value={wbColor}
+                  onChange={e => setWbColor(e.target.value)}
+                  title="Pen color"
+                  style={{ width: 32, height: 32, border: 'none', cursor: 'pointer', borderRadius: 4 }}
+                />
+                {/* Brush size */}
+                <select
+                  value={wbSize}
+                  onChange={e => setWbSize(Number(e.target.value))}
+                  style={{ padding: '4px 6px', borderRadius: 4, border: 'none', cursor: 'pointer' }}
+                >
+                  <option value={2}>Thin</option>
+                  <option value={5}>Medium</option>
+                  <option value={10}>Thick</option>
+                  <option value={20}>Eraser</option>
+                </select>
+                <button
+                  onClick={clearWhiteboard}
+                  style={{ padding: '4px 10px', borderRadius: 4, background: '#e74c3c', color: 'white', border: 'none', cursor: 'pointer' }}
+                >
+                  Clear All
+                </button>
+                <button onClick={() => setShowWhiteboard(false)}>✕</button>
+              </div>
             </div>
             <div className="whiteboard-content">
-              <canvas width="800" height="600" style={{border: '1px solid #ccc', background: 'white'}} />
-              <p>Whiteboard functionality - Coming soon!</p>
+              <canvas
+                ref={wbCanvasRef}
+                width={800}
+                height={560}
+                style={{ background: 'white', cursor: 'crosshair', display: 'block', borderRadius: 4 }}
+                onMouseDown={wbStartDraw}
+                onMouseMove={wbDraw}
+                onMouseUp={wbEndDraw}
+                onMouseLeave={wbEndDraw}
+                onTouchStart={wbStartDraw}
+                onTouchMove={wbDraw}
+                onTouchEnd={wbEndDraw}
+              />
             </div>
           </div>
         </div>
@@ -1936,6 +2269,14 @@ function VideoCall() {
               {translationEnabled ? 'Auto-Translate ON' : 'Auto-Translate'}
             </span>
           </button>
+
+          <div className="inline-language-selector" title="Change translation language">
+            <LanguageSelector
+              selectedLanguage={translationLanguage}
+              onLanguageChange={changeLanguage}
+              showLabel={false}
+            />
+          </div>
 
           <button
             onClick={() => setShowTranscriptions(!showTranscriptions)}

@@ -1737,3 +1737,312 @@
     box-shadow: 0 0 20px rgba(118, 75, 162, 0.5);
   }
 }
+
+/* Auto-recording badge */
+.auto-rec-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  background: #ef4444;
+  border-radius: 50%;
+  animation: recPulse 1.2s ease-in-out infinite;
+}
+@keyframes recPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Meeting Timer Section */
+.meeting-timer-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0 20px;
+}
+
+.auto-rec-badge {
+  background: rgba(239, 68, 68, 0.3);
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #fca5a5;
+}
+
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  background: #ef4444;
+  border-radius: 50%;
+  animation: pulse-rec 1.5s infinite;
+}
+
+@keyframes pulse-rec {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.2); }
+}
+
+.meeting-elapsed {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #ecf0f1;
+  font-family: 'Courier New', monospace;
+  background: rgba(255,255,255,0.1);
+  padding: 4px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.2);
+}
+
+.meeting-end-countdown {
+  font-size: 0.85rem;
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.2);
+  padding: 3px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.meeting-end-countdown.warning {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.2);
+  border-color: rgba(251, 191, 36, 0.4);
+  animation: pulse-warning 1s infinite;
+}
+
+@keyframes pulse-warning {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.meeting-schedule {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.6);
+  text-align: center;
+}
+
+/* ── Modals ─────────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.whiteboard-overlay {
+  align-items: flex-start;
+  padding-top: 40px;
+}
+
+.whiteboard-modal {
+  background: #1e3c72;
+  border-radius: 12px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+  width: 860px;
+  max-width: 98vw;
+  overflow: hidden;
+}
+
+.whiteboard-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(0,0,0,0.3);
+  color: white;
+  gap: 8px;
+}
+
+.whiteboard-modal .modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.whiteboard-content {
+  padding: 12px;
+  background: #f0f0f0;
+}
+
+.whiteboard-content canvas {
+  width: 100%;
+  height: auto;
+  touch-action: none;
+}
+
+/* Stats modal */
+.stats-modal {
+  background: #1e3c72;
+  border-radius: 12px;
+  padding: 0;
+  width: 360px;
+  max-width: 95vw;
+  color: white;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+  overflow: hidden;
+}
+
+.stats-modal .modal-header,
+.whiteboard-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  background: rgba(0,0,0,0.3);
+}
+
+.stats-modal .modal-header h3 {
+  margin: 0;
+}
+
+.stats-modal .modal-header button,
+.whiteboard-modal .modal-header button {
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: white;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.stats-content {
+  padding: 16px 18px;
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  font-size: 0.9rem;
+}
+
+/* ── Inline language selector in control bar ────────────────────────────── */
+.inline-language-selector {
+  display: flex;
+  align-items: center;
+}
+
+.inline-language-selector .language-selector {
+  margin: 0;
+}
+
+.inline-language-selector .language-button {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.inline-language-selector .language-button:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.inline-language-selector .language-name {
+  color: white;
+  font-size: 0.8rem;
+}
+
+.inline-language-selector .dropdown-arrow {
+  color: rgba(255,255,255,0.7);
+}
+
+.inline-language-selector .language-flag {
+  font-size: 16px;
+}
+
+/* Open upward since the control bar is at the bottom */
+.inline-language-selector .language-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 500;
+  min-width: 180px;
+}
+
+/* Floating Participants Button */
+.floating-participants-btn {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(30, 60, 114, 0.92);
+  border: 2px solid rgba(52, 152, 219, 0.6);
+  color: white;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  transition: all 0.25s ease;
+  gap: 2px;
+}
+
+.floating-participants-btn:hover {
+  background: rgba(52, 152, 219, 0.85);
+  border-color: #3498db;
+  transform: scale(1.08);
+  box-shadow: 0 6px 24px rgba(52, 152, 219, 0.5);
+}
+
+.floating-participants-btn.active {
+  background: linear-gradient(45deg, #3498db, #2980b9);
+  border-color: #3498db;
+  box-shadow: 0 0 20px rgba(52, 152, 219, 0.6);
+}
+
+.floating-participants-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.floating-participants-count {
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.3px;
+}
+
+@media (max-width: 768px) {
+  .floating-participants-btn {
+    top: auto;
+    bottom: 100px;
+    right: 16px;
+    width: 50px;
+    height: 50px;
+  }
+}

@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { API_BASE } from '../config';
 import LanguageSelector from './LanguageSelector';
+import useRipple from '../hooks/useRipple';
 import './Form.css';
 
 function JoinRoom() {
   const navigate = useNavigate();
   const location = useLocation();
+  const ripple = useRipple();
   const [formData, setFormData] = useState({
     participantName: '',
     participantEmail: '',
@@ -55,6 +57,24 @@ function JoinRoom() {
 
       if (response.ok) {
         console.log('✅ Room verification successful');
+
+        // Check meeting start time
+        const { room: roomInfo } = data;
+        if (roomInfo?.meetingDate && roomInfo?.meetingTime) {
+          try {
+            const startDt = new Date(`${roomInfo.meetingDate}T${roomInfo.meetingTime}:00`);
+            const now = new Date();
+            if (now < startDt) {
+              const minutesUntil = Math.ceil((startDt - now) / 60000);
+              setError(`Meeting hasn't started yet. Scheduled for ${roomInfo.meetingDate} at ${roomInfo.meetingTime} (in ${minutesUntil} min).`);
+              setLoading(false);
+              return;
+            }
+          } catch (e) {
+            console.warn('Could not parse meeting time:', e);
+          }
+        }
+
         // Room verified, navigate to the room
         navigate(`/room/${formData.roomId}`, {
           state: {
@@ -146,15 +166,16 @@ function JoinRoom() {
           <div className="form-actions">
             <button
               type="button"
-              onClick={() => navigate('/')}
-              className="btn btn-secondary"
+              onClick={(e) => { ripple(e); navigate('/'); }}
+              className="btn btn-secondary ripple-host"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="btn btn-primary"
+              onClick={ripple}
+              className={`btn btn-primary ripple-host${loading ? ' btn-loading' : ''}`}
             >
               {loading ? 'Joining...' : 'Join Room'}
             </button>

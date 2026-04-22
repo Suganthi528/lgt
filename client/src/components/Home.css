@@ -573,3 +573,101 @@
     align-items: center;
   }
 }
+.history
+-link-btn {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 8px 20px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.25);
+  color: white;
+  border-radius: 20px;
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: background 0.2s;
+}
+.history-link-btn:hover { background: rgba(255,255,255,0.2); }
+
+/* ── Header entry animations ─────────────────────────────────────────────── */
+.home-header .logo-section {
+  animation: slide-down 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.home-header h1 {
+  animation: slide-down 0.6s 0.1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.home-header .tagline {
+  animation: slide-down 0.6s 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-24px); }
+  to   { opacity: 1; transform: translateY(0);     }
+}
+
+/* ── Badge stagger (badges use .reveal via JS) ───────────────────────────── */
+.feature-badges .badge {
+  /* override default reveal delay with custom stagger */
+  transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+              background 0.25s ease, box-shadow 0.25s ease !important;
+}
+.feature-badges .badge:nth-child(1) { transition-delay: 0.3s !important; }
+.feature-badges .badge:nth-child(2) { transition-delay: 0.4s !important; }
+.feature-badges .badge:nth-child(3) { transition-delay: 0.5s !important; }
+.feature-badges .badge:nth-child(4) { transition-delay: 0.6s !important; }
+
+.badge:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-4px) scale(1.06);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+}
+
+/* ── Card icon — pause bounce on card hover ──────────────────────────────── */
+.option-card:hover .card-icon {
+  animation-play-state: paused;
+  transform: scale(1.15) rotate(-5deg);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: inline-block;
+}
+
+/* ── Skeleton loading for events ─────────────────────────────────────────── */
+.events-skeleton {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 25px;
+}
+.event-card-skeleton {
+  background: rgba(255,255,255,0.08);
+  border-radius: 20px;
+  padding: 25px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.sk-title  { height: 22px; width: 60%; }
+.sk-line   { height: 14px; width: 80%; }
+.sk-short  { width: 45%; }
+
+/* ── Event card stagger ──────────────────────────────────────────────────── */
+.events-list .event-card:nth-child(1) { transition-delay: 0ms;   }
+.events-list .event-card:nth-child(2) { transition-delay: 80ms;  }
+.events-list .event-card:nth-child(3) { transition-delay: 160ms; }
+.events-list .event-card:nth-child(4) { transition-delay: 240ms; }
+.events-list .event-card:nth-child(5) { transition-delay: 320ms; }
+
+/* ── Footer reveal ───────────────────────────────────────────────────────── */
+.home-footer.reveal { transition-delay: 100ms; }
+
+/* ── Footer link hover underline ─────────────────────────────────────────── */
+.footer-links span {
+  position: relative;
+}
+.footer-links span::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 0;
+  height: 1px;
+  background: #ecf0f1;
+  transition: width 0.25s ease;
+}
+.footer-links span:hover::after { width: 100%; }

@@ -2,17 +2,20 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config';
 import LanguageSelector from './LanguageSelector';
+import useRipple from '../hooks/useRipple';
 import './Form.css';
 
 function CreateRoom() {
   const navigate = useNavigate();
+  const ripple = useRipple();
   const [formData, setFormData] = useState({
     creatorName: '',
     creatorEmail: '',
     roomId: '',
     passcode: '',
     meetingDate: '',
-    meetingTime: ''
+    meetingTime: '',
+    meetingEndTime: ''
   });
   const [translationLanguage, setTranslationLanguage] = useState('es');
   const [loading, setLoading] = useState(false);
@@ -159,7 +162,7 @@ function CreateRoom() {
             </div>
 
             <div className="form-group">
-              <label htmlFor="meetingTime">Meeting Time *</label>
+              <label htmlFor="meetingTime">Start Time *</label>
               <input
                 type="time"
                 id="meetingTime"
@@ -167,6 +170,18 @@ function CreateRoom() {
                 value={formData.meetingTime}
                 onChange={handleChange}
                 required
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="meetingEndTime">End Time</label>
+              <input
+                type="time"
+                id="meetingEndTime"
+                name="meetingEndTime"
+                value={formData.meetingEndTime}
+                onChange={handleChange}
+                placeholder="Optional"
               />
             </div>
           </div>
@@ -179,15 +194,16 @@ function CreateRoom() {
           <div className="form-actions">
             <button
               type="button"
-              onClick={() => navigate('/')}
-              className="btn btn-secondary"
+              onClick={(e) => { ripple(e); navigate('/'); }}
+              className="btn btn-secondary ripple-host"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="btn btn-primary"
+              onClick={ripple}
+              className={`btn btn-primary ripple-host${loading ? ' btn-loading' : ''}`}
             >
               {loading ? 'Creating...' : 'Create Room'}
             </button>

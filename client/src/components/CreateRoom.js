@@ -11,6 +11,7 @@ function CreateRoom() {
   const [formData, setFormData] = useState({
     creatorName: '',
     creatorEmail: '',
+    roomName: '',
     roomId: '',
     passcode: '',
     meetingDate: '',
@@ -76,10 +77,12 @@ function CreateRoom() {
         const savedRooms = JSON.parse(localStorage.getItem('createdRooms') || '[]');
         savedRooms.push({
           id: formData.roomId,
+          roomName: formData.roomName || `${formData.creatorName}'s Meeting`,
           creatorName: formData.creatorName,
           meetingDate: formData.meetingDate,
           meetingTime: formData.meetingTime,
           meetingEndTime: formData.meetingEndTime || null,
+          isActive: false,
           participantCount: 0,
           createdAt: new Date().toISOString()
         });
@@ -139,6 +142,19 @@ function CreateRoom() {
               onChange={handleChange}
               required
               placeholder="Enter your email address"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="roomName">Meeting Name *</label>
+            <input
+              type="text"
+              id="roomName"
+              name="roomName"
+              value={formData.roomName}
+              onChange={handleChange}
+              required
+              placeholder="e.g. Weekly Team Sync"
             />
           </div>
 

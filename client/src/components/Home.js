@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { API_BASE, SOCKET_URL } from '../config';
 import { io } from 'socket.io-client';
@@ -9,12 +9,62 @@ import './Home.css';
 // Import test for configuration verification
 import '../test-config';
 
+// Returns true if the meeting is currently joinable (within 5 min before start or already started)
+function isMeetingJoinable(event) {
+  if (event.isActive) return true;
+  if (!event.meetingDate || !event.meetingTime) return true; // no schedule = always joinable
+  try {
+    const startDt = new Date(`${event.meetingDate}T${event.meetingTime}:00`);
+    const now = new Date();
+    return now >= startDt - 5 * 60 * 1000; // allow 5 min early
+  } catch {
+    return true;
+  }
+}
+
+function getMeetingStatus(event) {
+  if (event.isActive) return 'active';
+  if (!event.meetingDate || !event.meetingTime) return 'scheduled';
+  try {
+    const startDt = new Date(`${event.meetingDate}T${event.meetingTime}:00`);
+    const now = new Date();
+    if (now >= startDt - 5 * 60 * 1000) return 'starting';
+    return 'scheduled';
+  } catch {
+    return 'scheduled';
+  }
+}
+
 function Home() {
   const [upcomingEvents, setUpcomingEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(true);
 
   const revealRef   = useScrollReveal();
   const ripple      = useRipple();
+
+  const fetchUpcomingEvents = useCallback(async (showLoader = false) => {
+    if (showLoader) setEventsLoading(true);
+    console.log('📅 Fetching upcoming events from:', API_BASE);
+    try {
+      const response = await fetch(`${API_BASE}/rooms`);
+      const serverRooms = await response.json();
+      console.log('✅ Fetched rooms from server:', serverRooms.length);
+
+      // Merge with locally saved rooms (created on this device)
+      const localRooms = JSON.parse(localStorage.getItem('createdRooms') || '[]');
+      const serverIds = new Set(serverRooms.map(r => r.id));
+      const localOnly = localRooms.filter(r => !serverIds.has(r.id));
+      const merged = [...serverRooms, ...localOnly];
+
+      setUpcomingEvents(merged);
+    } catch (error) {
+      console.error('❌ Error fetching rooms:', error);
+      const localRooms = JSON.parse(localStorage.getItem('createdRooms') || '[]');
+      setUpcomingEvents(localRooms);
+    } finally {
+      setEventsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetchUpcomingEvents(true);
@@ -28,16 +78,27 @@ function Home() {
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
-    // Connect to socket for instant room-created notifications across all tabs/devices
+    // Real-time socket updates
     const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
 
     socket.on('room-created', (newRoom) => {
       console.log('🔔 New room created (socket):', newRoom.id);
       setUpcomingEvents(prev => {
-        // Avoid duplicates
         if (prev.find(r => r.id === newRoom.id)) return prev;
         return [newRoom, ...prev];
       });
+    });
+
+    socket.on('room-active', ({ id, isActive, participantCount }) => {
+      console.log('🟢 Room is now active:', id);
+      setUpcomingEvents(prev =>
+        prev.map(r => r.id === id ? { ...r, isActive, participantCount } : r)
+      );
+    });
+
+    socket.on('room-deleted', ({ id }) => {
+      console.log('🗑️ Room deleted:', id);
+      setUpcomingEvents(prev => prev.filter(r => r.id !== id));
     });
 
     return () => {
@@ -45,33 +106,7 @@ function Home() {
       document.removeEventListener('visibilitychange', handleVisibility);
       socket.disconnect();
     };
-  }, []);
-
-  const fetchUpcomingEvents = async (showLoader = false) => {
-    if (showLoader) setEventsLoading(true);
-    console.log('📅 Fetching upcoming events from:', API_BASE);
-    try {
-      const response = await fetch(`${API_BASE}/rooms`);
-      const serverRooms = await response.json();
-      console.log('✅ Fetched rooms from server:', serverRooms.length);
-
-      // Merge with locally saved rooms (created on this device)
-      const localRooms = JSON.parse(localStorage.getItem('createdRooms') || '[]');
-      const serverIds = new Set(serverRooms.map(r => r.id));
-      // Only add local rooms that aren't already in the server response
-      const localOnly = localRooms.filter(r => !serverIds.has(r.id));
-      const merged = [...serverRooms, ...localOnly];
-
-      setUpcomingEvents(merged);
-    } catch (error) {
-      console.error('❌ Error fetching rooms:', error);
-      // Fallback to local rooms if server is unreachable
-      const localRooms = JSON.parse(localStorage.getItem('createdRooms') || '[]');
-      setUpcomingEvents(localRooms);
-    } finally {
-      setEventsLoading(false);
-    }
-  };
+  }, [fetchUpcomingEvents]);
 
   return (
     <div className="home-container" ref={revealRef}>
@@ -158,17 +193,25 @@ function Home() {
           </div>
         ) : (
           <div className="events-list">
-            {upcomingEvents.map((event) => (
-              <div key={event.id} className="event-card reveal">
-                <h3 className="event-title">{event.creatorName}'s Meeting</h3>
+            {upcomingEvents.map((event) => {
+              const status = getMeetingStatus(event);
+              const joinable = isMeetingJoinable(event);
+              return (
+              <div key={event.id} className={`event-card reveal${event.isActive ? ' event-card--active' : ''}`}>
+                <div className="event-card-top">
+                  <h3 className="event-title">{event.roomName || `${event.creatorName}'s Meeting`}</h3>
+                  <span className={`event-status event-status--${status}`}>
+                    {status === 'active' ? '🟢 Live' : status === 'starting' ? '🟡 Starting Soon' : '🕐 Scheduled'}
+                  </span>
+                </div>
                 <div className="event-details">
                   <div className="detail-item">
                     <span className="detail-icon">📅</span>
-                    <span>Date: {event.meetingDate}</span>
+                    <span>{event.meetingDate || 'TBD'}</span>
                   </div>
                   <div className="detail-item">
                     <span className="detail-icon">🕒</span>
-                    <span>Time: {event.meetingTime}{event.meetingEndTime ? ` – ${event.meetingEndTime}` : ''}</span>
+                    <span>{event.meetingTime || 'TBD'}{event.meetingEndTime ? ` – ${event.meetingEndTime}` : ''}</span>
                   </div>
                   <div className="detail-item">
                     <span className="detail-icon">👤</span>
@@ -178,27 +221,42 @@ function Home() {
                     <span className="detail-icon">🔗</span>
                     <span>Room ID: {event.id}</span>
                   </div>
+                  {event.participantCount > 0 && (
+                    <div className="detail-item">
+                      <span className="detail-icon">👥</span>
+                      <span>{event.participantCount} participant{event.participantCount !== 1 ? 's' : ''} in room</span>
+                    </div>
+                  )}
                 </div>
                 <div className="event-actions">
-                  <Link
-                    to="/join-room"
-                    state={{ roomId: event.id, isHost: true }}
-                    className="btn-join btn-join-admin ripple-host"
-                    onClick={ripple}
-                  >
-                    Join as Admin
-                  </Link>
-                  <Link
-                    to="/join-room"
-                    state={{ roomId: event.id, isHost: false }}
-                    className="btn-join btn-join-participant ripple-host"
-                    onClick={ripple}
-                  >
-                    Join as Participant
-                  </Link>
+                  {joinable ? (
+                    <>
+                      <Link
+                        to="/join-room"
+                        state={{ roomId: event.id, isHost: true }}
+                        className="btn-join btn-join-admin ripple-host"
+                        onClick={ripple}
+                      >
+                        {event.isActive ? '🟢 Join as Admin' : 'Join as Admin'}
+                      </Link>
+                      <Link
+                        to="/join-room"
+                        state={{ roomId: event.id, isHost: false }}
+                        className="btn-join btn-join-participant ripple-host"
+                        onClick={ripple}
+                      >
+                        {event.isActive ? '🟢 Join as Participant' : 'Join as Participant'}
+                      </Link>
+                    </>
+                  ) : (
+                    <div className="btn-join btn-join-scheduled" title={`Scheduled for ${event.meetingDate} at ${event.meetingTime}`}>
+                      ⏳ Not started yet
+                    </div>
+                  )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

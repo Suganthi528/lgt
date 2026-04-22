@@ -688,3 +688,75 @@
   transition: width 0.25s ease;
 }
 .footer-links span:hover::after { width: 100%; }
+
+/* ── Event card top row (title + status badge) ───────────────────────────── */
+.event-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.event-card-top .event-title {
+  margin: 0;
+  flex: 1;
+}
+
+/* ── Status badges ───────────────────────────────────────────────────────── */
+.event-status {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.event-status--active {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+  animation: pulse-green 2s ease-in-out infinite;
+}
+
+.event-status--starting {
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeeba;
+}
+
+.event-status--scheduled {
+  background: #e2e3e5;
+  color: #383d41;
+  border: 1px solid #d6d8db;
+}
+
+@keyframes pulse-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.4); }
+  50%       { box-shadow: 0 0 0 6px rgba(40, 167, 69, 0); }
+}
+
+/* ── Active room card highlight ──────────────────────────────────────────── */
+.event-card--active {
+  border: 2px solid rgba(40, 167, 69, 0.5);
+  box-shadow: 0 8px 32px rgba(40, 167, 69, 0.15);
+}
+
+.event-card--active:hover {
+  box-shadow: 0 16px 48px rgba(40, 167, 69, 0.25);
+}
+
+/* ── Scheduled / not-yet-joinable button ─────────────────────────────────── */
+.btn-join-scheduled {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: 50px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.9rem;
+  background: #e9ecef;
+  color: #6c757d;
+  cursor: default;
+  border: 1px dashed #ced4da;
+}

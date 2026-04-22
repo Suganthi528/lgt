@@ -110,12 +110,14 @@ const saveRooms = () => {
   try {
     const data = Array.from(rooms.values()).map(r => ({
       id: r.id,
+      roomName: r.roomName || `${r.creatorName}'s Meeting`,
       passcode: r.passcode,
       creatorName: r.creatorName,
       creatorEmail: r.creatorEmail,
       meetingDate: r.meetingDate,
       meetingTime: r.meetingTime,
       meetingEndTime: r.meetingEndTime || null,
+      isActive: r.isActive || false,
       adminId: r.adminId,
       participants: [],        // don't persist live socket state
       chatMessages: [],
@@ -170,6 +172,7 @@ const scheduleRoomEnd = (roomId, meetingDate, meetingEndTime) => {
       room.participants.forEach(p => { userSockets.delete(p.id); });
       rooms.delete(roomId);
       roomEndTimers.delete(roomId);
+      io.emit('room-deleted', { id: roomId });
     }, msUntilEnd);
     roomEndTimers.set(roomId, timer);
   } catch (e) {
@@ -178,7 +181,7 @@ const scheduleRoomEnd = (roomId, meetingDate, meetingEndTime) => {
 };
 
 app.post('/api/rooms', (req, res) => {
-  const { creatorName, creatorEmail, roomId, passcode, meetingDate, meetingTime, meetingEndTime } = req.body;
+  const { creatorName, creatorEmail, roomId, passcode, meetingDate, meetingTime, meetingEndTime, roomName } = req.body;
   
   console.log('📥 Room creation request:', { roomId, creatorName, creatorEmail });
   
@@ -189,6 +192,7 @@ app.post('/api/rooms', (req, res) => {
   
   const room = {
     id: roomId,
+    roomName: roomName || `${creatorName}'s Meeting`,
     passcode,
     creatorName,
     creatorEmail,
@@ -196,6 +200,7 @@ app.post('/api/rooms', (req, res) => {
     meetingTime,
     meetingEndTime: meetingEndTime || null,
     adminId: null,
+    isActive: false,
     participants: [],
     chatMessages: [],
     reactions: [],
@@ -211,10 +216,12 @@ app.post('/api/rooms', (req, res) => {
   // Broadcast to all connected home-page clients so Upcoming Meetings updates instantly
   io.emit('room-created', {
     id: room.id,
+    roomName: room.roomName,
     creatorName: room.creatorName,
     meetingDate: room.meetingDate,
     meetingTime: room.meetingTime,
     meetingEndTime: room.meetingEndTime || null,
+    isActive: false,
     participantCount: 0,
     createdAt: room.createdAt
   });
@@ -233,10 +240,12 @@ app.get('/api/rooms', (req, res) => {
   console.log('📋 Listing all rooms');
   const roomList = Array.from(rooms.values()).map(room => ({
     id: room.id,
+    roomName: room.roomName || `${room.creatorName}'s Meeting`,
     creatorName: room.creatorName,
     meetingDate: room.meetingDate,
     meetingTime: room.meetingTime,
     meetingEndTime: room.meetingEndTime || null,
+    isActive: room.isActive || false,
     participantCount: room.participants.length,
     createdAt: room.createdAt
   }));
@@ -633,7 +642,10 @@ io.on("connection", socket => {
     // Set admin if this is the host joining
     if (isHost && !room.adminId) {
       room.adminId = socket.id;
+      room.isActive = true;
       console.log(`👑 ${participantName} is now the admin of room ${roomId}`);
+      // Broadcast to all home-page clients that this room is now active
+      io.emit('room-active', { id: roomId, isActive: true, participantCount: room.participants.length + 1 });
     }
     
     // Add participant to room with translation language
@@ -812,6 +824,7 @@ io.on("connection", socket => {
     rooms.delete(roomId);
     if (roomEndTimers.has(roomId)) { clearTimeout(roomEndTimers.get(roomId)); roomEndTimers.delete(roomId); }
     saveRooms();
+    io.emit('room-deleted', { id: roomId });
     console.log(`🗑️ Room ${roomId} deleted by admin`);
   });
 
@@ -1029,6 +1042,7 @@ io.on("connection", socket => {
           rooms.delete(roomId);
           if (roomEndTimers.has(roomId)) { clearTimeout(roomEndTimers.get(roomId)); roomEndTimers.delete(roomId); }
           saveRooms();
+          io.emit('room-deleted', { id: roomId });
           console.log(`🗑️ Room ${roomId} deleted - Admin left`);
         } else {
           // Regular participant leaving

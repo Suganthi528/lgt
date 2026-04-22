@@ -11,10 +11,9 @@ const config = {
 };
 
 // Determine current environment
-// Check if we're running on localhost (development) or deployed (production)
+// Only treat true localhost as development — ngrok/deployed URLs use production backend
 const isLocalhost = window.location.hostname === 'localhost' || 
-                   window.location.hostname === '127.0.0.1' ||
-                   window.location.hostname.includes('localhost');
+                   window.location.hostname === '127.0.0.1';
 
 const environment = isLocalhost ? 'development' : 'production';
 

@@ -44,13 +44,29 @@ function CreateRoom() {
     console.log('🏠 Creating room with API:', API_BASE);
 
     try {
-      const response = await fetch(`${API_BASE}/rooms`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-      });
+      // Wake up Render server if it's sleeping (free tier spins down after inactivity)
+      // We retry up to 3 times with a delay to handle cold starts (~30s)
+      let response;
+      let lastError;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          response = await fetch(`${API_BASE}/rooms`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData),
+          });
+          break; // success, exit retry loop
+        } catch (err) {
+          lastError = err;
+          console.warn(`⚠️ Attempt ${attempt} failed:`, err.message);
+          if (attempt < 3) {
+            setError(`Server is waking up... retrying (${attempt}/3)`);
+            await new Promise(r => setTimeout(r, 5000)); // wait 5s before retry
+          }
+        }
+      }
+
+      if (!response) throw lastError;
 
       const data = await response.json();
 

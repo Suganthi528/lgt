@@ -12,7 +12,7 @@ dotenv.config();
 
 const app = express();
 
-// Always allow both local dev and Render production origins
+// Always allow both local dev and Render/ngrok production origins
 const ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'http://localhost:3001',
@@ -25,6 +25,10 @@ const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
+    // Allow any ngrok tunnel (for frontend dev/demo via ngrok)
+    if (origin.includes('ngrok-free.dev') || origin.includes('ngrok-free.app') || origin.includes('ngrok.io')) {
+      return callback(null, true);
+    }
     if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
     callback(new Error(`CORS blocked: ${origin}`));
   },
@@ -40,7 +44,14 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: ALLOWED_ORIGINS,
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (origin.includes('ngrok-free.dev') || origin.includes('ngrok-free.app') || origin.includes('ngrok.io')) {
+        return callback(null, true);
+      }
+      if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      callback(new Error(`CORS blocked: ${origin}`));
+    },
     methods: ["GET", "POST"],
     credentials: true
   },

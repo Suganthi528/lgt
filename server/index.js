@@ -86,8 +86,52 @@ const cleanupTempFiles = () => {
 };
 cleanupTempFiles();
 
+// ── Persistent room storage ──────────────────────────────────────────────────
+// Rooms are saved to a JSON file so they survive server restarts (Render free
+// tier spins down after inactivity and wipes in-memory state).
+const ROOMS_FILE = path.join(TEMP_DIR, 'vm_rooms.json');
+
+const loadRooms = () => {
+  try {
+    if (fs.existsSync(ROOMS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf8'));
+      const map = new Map();
+      data.forEach(r => map.set(r.id, r));
+      console.log(`📂 Loaded ${map.size} rooms from disk`);
+      return map;
+    }
+  } catch (e) {
+    console.error('⚠️ Could not load rooms from disk:', e.message);
+  }
+  return new Map();
+};
+
+const saveRooms = () => {
+  try {
+    const data = Array.from(rooms.values()).map(r => ({
+      id: r.id,
+      passcode: r.passcode,
+      creatorName: r.creatorName,
+      creatorEmail: r.creatorEmail,
+      meetingDate: r.meetingDate,
+      meetingTime: r.meetingTime,
+      meetingEndTime: r.meetingEndTime || null,
+      adminId: r.adminId,
+      participants: [],        // don't persist live socket state
+      chatMessages: [],
+      reactions: [],
+      raisedHands: [],
+      whiteboardStrokes: [],
+      createdAt: r.createdAt
+    }));
+    fs.writeFileSync(ROOMS_FILE, JSON.stringify(data));
+  } catch (e) {
+    console.error('⚠️ Could not save rooms to disk:', e.message);
+  }
+};
+
 // Store rooms and their participants
-const rooms = new Map();
+const rooms = loadRooms();
 const userSockets = new Map();
 // Per-room active speaker lock: roomId → { socketId, lockedAt }
 const activeSpeakers = new Map();
@@ -160,6 +204,20 @@ app.post('/api/rooms', (req, res) => {
   };
   
   rooms.set(roomId, room);
+
+  // Persist to disk so rooms survive server restarts
+  saveRooms();
+
+  // Broadcast to all connected home-page clients so Upcoming Meetings updates instantly
+  io.emit('room-created', {
+    id: room.id,
+    creatorName: room.creatorName,
+    meetingDate: room.meetingDate,
+    meetingTime: room.meetingTime,
+    meetingEndTime: room.meetingEndTime || null,
+    participantCount: 0,
+    createdAt: room.createdAt
+  });
 
   // Schedule auto-end if end time provided
   if (meetingEndTime) {
@@ -753,6 +811,7 @@ io.on("connection", socket => {
     // Clean up room
     rooms.delete(roomId);
     if (roomEndTimers.has(roomId)) { clearTimeout(roomEndTimers.get(roomId)); roomEndTimers.delete(roomId); }
+    saveRooms();
     console.log(`🗑️ Room ${roomId} deleted by admin`);
   });
 
@@ -969,6 +1028,7 @@ io.on("connection", socket => {
           // Delete the room
           rooms.delete(roomId);
           if (roomEndTimers.has(roomId)) { clearTimeout(roomEndTimers.get(roomId)); roomEndTimers.delete(roomId); }
+          saveRooms();
           console.log(`🗑️ Room ${roomId} deleted - Admin left`);
         } else {
           // Regular participant leaving

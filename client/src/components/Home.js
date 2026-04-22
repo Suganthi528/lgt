@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { API_BASE } from '../config';
+import { API_BASE, SOCKET_URL } from '../config';
+import { io } from 'socket.io-client';
 import useScrollReveal from '../hooks/useScrollReveal';
 import useRipple from '../hooks/useRipple';
 import './Home.css';
@@ -18,18 +19,31 @@ function Home() {
   useEffect(() => {
     fetchUpcomingEvents(true);
 
-    // Poll every 10 seconds so other tabs/devices see new rooms without a manual refresh
-    const pollInterval = setInterval(fetchUpcomingEvents, 10000);
+    // Poll every 15 seconds as a fallback
+    const pollInterval = setInterval(fetchUpcomingEvents, 15000);
 
-    // Also refresh immediately when the user switches back to this tab
+    // Refresh immediately when the user switches back to this tab
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') fetchUpcomingEvents();
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
+    // Connect to socket for instant room-created notifications across all tabs/devices
+    const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
+
+    socket.on('room-created', (newRoom) => {
+      console.log('🔔 New room created (socket):', newRoom.id);
+      setUpcomingEvents(prev => {
+        // Avoid duplicates
+        if (prev.find(r => r.id === newRoom.id)) return prev;
+        return [newRoom, ...prev];
+      });
+    });
+
     return () => {
       clearInterval(pollInterval);
       document.removeEventListener('visibilitychange', handleVisibility);
+      socket.disconnect();
     };
   }, []);
 

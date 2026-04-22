@@ -16,10 +16,25 @@ function Home() {
   const ripple      = useRipple();
 
   useEffect(() => {
-    fetchUpcomingEvents();
+    fetchUpcomingEvents(true);
+
+    // Poll every 10 seconds so other tabs/devices see new rooms without a manual refresh
+    const pollInterval = setInterval(fetchUpcomingEvents, 10000);
+
+    // Also refresh immediately when the user switches back to this tab
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') fetchUpcomingEvents();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
-  const fetchUpcomingEvents = async () => {
+  const fetchUpcomingEvents = async (showLoader = false) => {
+    if (showLoader) setEventsLoading(true);
     console.log('📅 Fetching upcoming events from:', API_BASE);
     try {
       const response = await fetch(`${API_BASE}/rooms`);

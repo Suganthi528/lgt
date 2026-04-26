@@ -16,6 +16,7 @@ function JoinRoom() {
     passcode: ''
   });
   const [translationLanguage, setTranslationLanguage] = useState('es');
+  const [speakerLanguage, setSpeakerLanguage] = useState('en');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -82,7 +83,8 @@ function JoinRoom() {
             participantEmail: formData.participantEmail,
             passcode: formData.passcode,
             isHost: false,
-            translationLanguage
+            translationLanguage,
+            speakerLanguage
           }
         });
       } else {
@@ -159,8 +161,15 @@ function JoinRoom() {
           </div>
 
           <LanguageSelector
+            selectedLanguage={speakerLanguage}
+            onLanguageChange={setSpeakerLanguage}
+            label="🗣️ I speak (your language):"
+          />
+
+          <LanguageSelector
             selectedLanguage={translationLanguage}
             onLanguageChange={setTranslationLanguage}
+            label="🌐 I want to hear (translation language):"
           />
 
           <div className="form-actions">

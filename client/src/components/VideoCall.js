@@ -3,6 +3,7 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import io from 'socket.io-client';
 import { SOCKET_URL } from '../config';
 import LanguageSelector from './LanguageSelector';
+import { useNoiseSuppression } from '../hooks/useNoiseSuppression';
 import './VideoCall.css';
 
 function VideoCall() {
@@ -43,6 +44,16 @@ function VideoCall() {
   const continuousRecorderRef = useRef(null);
   const [translationStatus, setTranslationStatus] = useState(''); // Status message for debugging
   
+  // Noise suppression (Krisp-equivalent via RNNoise WASM)
+  const {
+    isSupported: noiseSuppressionSupported,
+    isEnabled: noiseSuppressionEnabled,
+    isLoading: noiseSuppressionLoading,
+    processStream: applyNoiseSuppression,
+    toggleNoiseSuppression,
+    cleanup: cleanupNoiseSuppression
+  } = useNoiseSuppression();
+
   // TTS state
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const ttsEnabledRef = useRef(true);
@@ -149,6 +160,7 @@ function VideoCall() {
   const socketRef = useRef();
   const peersRef = useRef(new Map());
   const localStreamRef = useRef();
+  const rawStreamRef = useRef(); // original unprocessed stream for re-applying noise suppression
   const screenStreamRef = useRef();
   const mediaRecorderRef = useRef();
   const recordingStreamRef = useRef();
@@ -178,6 +190,30 @@ function VideoCall() {
       }
     }, 1000);
   }, []);
+
+  // Re-apply (or remove) noise suppression when user toggles it mid-call
+  useEffect(() => {
+    if (!rawStreamRef.current) return;
+    (async () => {
+      const newStream = await applyNoiseSuppression(rawStreamRef.current);
+      const finalStream = newStream || rawStreamRef.current;
+      localStreamRef.current = finalStream;
+      setLocalStream(finalStream);
+      if (localVideoRef.current) localVideoRef.current.srcObject = finalStream;
+      // Replace audio track in all active peer connections
+      peersRef.current.forEach(async (peer) => {
+        const sender = peer.getSenders().find(s => s.track?.kind === 'audio');
+        if (sender) {
+          const newAudioTrack = finalStream.getAudioTracks()[0];
+          if (newAudioTrack) {
+            try { await sender.replaceTrack(newAudioTrack); } catch (e) {}
+          }
+        }
+      });
+      console.log(`🎙️ Noise suppression ${noiseSuppressionEnabled ? 'applied' : 'removed'} — stream updated`);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noiseSuppressionEnabled]);
 
   // Replay existing strokes when whiteboard opens
   useEffect(() => {
@@ -270,11 +306,20 @@ function VideoCall() {
       const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
 
       console.log('📹 Local stream obtained');
-      setLocalStream(stream);
-      localStreamRef.current = stream;
+      
+      // Store raw stream for re-applying noise suppression on toggle
+      rawStreamRef.current = stream;
+
+      // Apply RNNoise-based noise suppression (Krisp-equivalent)
+      // This cleans the audio before WebRTC transmission AND transcription
+      const processedStream = await applyNoiseSuppression(stream);
+      const finalStream = processedStream || stream;
+
+      setLocalStream(finalStream);
+      localStreamRef.current = finalStream;
       
       if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.srcObject = finalStream;
       }
 
       // Detect audio devices and show warning if no headphones
@@ -1099,6 +1144,9 @@ function VideoCall() {
 
       console.log('🎤 Starting VAD-driven continuous translation...');
       setTranslationEnabled(true);
+      // Auto-enable TTS so translated speech is heard immediately
+      setTtsEnabled(true);
+      ttsEnabledRef.current = true;
 
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (!audioTrack) {
@@ -1192,7 +1240,8 @@ function VideoCall() {
             socketRef.current.emit('continuous-audio', {
               audio: reader.result,
               roomId,
-              speakerName: participantName
+              speakerName: participantName,
+              speakerLanguage: location.state?.speakerLanguage || null // hint for Whisper
             });
             setTranslationStatus('✅ Sent — listening...');
           };
@@ -1663,6 +1712,9 @@ function VideoCall() {
   const cleanup = () => {
     console.log('🧹 Cleaning up...');
     
+    // Clean up noise suppression pipeline
+    cleanupNoiseSuppression();
+    
     // Stop meeting timer
     if (meetingTimerRef.current) {
       clearInterval(meetingTimerRef.current);
@@ -1764,6 +1816,11 @@ function VideoCall() {
           <div className="auto-rec-badge">
             <span className="rec-dot"></span> REC
           </div>
+          {noiseSuppressionEnabled && noiseSuppressionSupported && (
+            <div className="noise-suppression-badge" title="Background noise suppression active">
+              <span className="ns-dot"></span> Noise Suppression
+            </div>
+          )}
           <div className="meeting-elapsed">⏱ {meetingTimer}</div>
           {timeUntilEnd !== null && (
             <div className={`meeting-end-countdown ${timeUntilEnd < 300000 ? 'warning' : ''}`}>
@@ -1857,6 +1914,8 @@ function VideoCall() {
                   stream={remoteStream}
                   index={index}
                   raisedHands={raisedHands}
+                  translationActive={translationEnabled}
+                  ttsEnabled={ttsEnabled}
                 />
               );
             })}
@@ -2220,6 +2279,25 @@ function VideoCall() {
             {isAudioEnabled ? '🎤' : '🎤❌'}
             <span>Mute</span>
           </button>
+
+          {/* Noise Suppression Toggle (Krisp-equivalent via RNNoise) */}
+          {noiseSuppressionSupported && (
+            <button
+              onClick={toggleNoiseSuppression}
+              className={`control-btn noise-btn ${noiseSuppressionEnabled ? 'active' : ''}`}
+              title={
+                noiseSuppressionLoading
+                  ? 'Loading noise suppression...'
+                  : noiseSuppressionEnabled
+                  ? 'Noise suppression ON — click to disable'
+                  : 'Noise suppression OFF — click to enable'
+              }
+              disabled={noiseSuppressionLoading}
+            >
+              {noiseSuppressionLoading ? '⏳' : noiseSuppressionEnabled ? '🎙️' : '🔕'}
+              <span>{noiseSuppressionLoading ? 'Loading...' : noiseSuppressionEnabled ? 'Noise OFF' : 'Noise ON'}</span>
+            </button>
+          )}
           
           <button
             onClick={toggleVideo}
@@ -2400,9 +2478,16 @@ function VideoCall() {
 }
 
 // Separate component for remote video to ensure proper re-rendering
-const RemoteVideo = React.memo(({ participant, stream, index, raisedHands }) => {
+const RemoteVideo = React.memo(({ participant, stream, index, raisedHands, translationActive, ttsEnabled }) => {
   const videoRef = useRef();
   const [isStreamActive, setIsStreamActive] = useState(false);
+  // When translation is active, suppress the raw WebRTC audio so only TTS is heard.
+  // User can toggle this back on with the "hear original" button.
+  const [hearOriginal, setHearOriginal] = useState(false);
+
+  // Derived: should the video element play audio?
+  // Mute raw audio when: translation is on AND user hasn't asked to hear original
+  const rawAudioMuted = translationActive && !hearOriginal;
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -2413,6 +2498,18 @@ const RemoteVideo = React.memo(({ participant, stream, index, raisedHands }) => 
       setIsStreamActive(false);
     }
   }, [stream, participant.name]);
+
+  // Apply volume change reactively without remounting the video element
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.volume = rawAudioMuted ? 0 : 1;
+    }
+  }, [rawAudioMuted]);
+
+  // Reset "hear original" when translation is turned off
+  useEffect(() => {
+    if (!translationActive) setHearOriginal(false);
+  }, [translationActive]);
 
   const colorClass = `remote-video-${(index % 6) + 1}`;
   const hasRaisedHand = raisedHands.some(h => h.participantId === participant.id);
@@ -2433,6 +2530,37 @@ const RemoteVideo = React.memo(({ participant, stream, index, raisedHands }) => 
         {!participant.isAudioEnabled && ' (Muted)'}
         {hasRaisedHand && ' ✋'}
       </div>
+
+      {/* Translation audio mode indicator */}
+      {translationActive && (
+        <div className="translation-audio-badge">
+          {rawAudioMuted ? (
+            <>
+              <span className="tab-icon">🌐</span>
+              <span>Translated audio</span>
+              <button
+                className="hear-original-btn"
+                onClick={() => setHearOriginal(true)}
+                title="Hear original audio instead of translation"
+              >
+                Hear original
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="tab-icon">🔊</span>
+              <span>Original audio</span>
+              <button
+                className="hear-original-btn active"
+                onClick={() => setHearOriginal(false)}
+                title="Switch back to translated audio"
+              >
+                Use translation
+              </button>
+            </>
+          )}
+        </div>
+      )}
       
       {/* Connection Status Overlay */}
       {(!isStreamActive || connectionStatus === 'connecting') && (

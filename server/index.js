@@ -408,7 +408,7 @@ io.on("connection", socket => {
         return;
       }
 
-      const { audio, roomId, speakerName } = audioData;
+      const { audio, roomId, speakerName, speakerLanguage } = audioData;
 
       const room = rooms.get(roomId);
       if (!room) {
@@ -458,11 +458,18 @@ io.on("connection", socket => {
       // Transcribe
       let text;
       try {
-        const transcription = await groq.audio.transcriptions.create({
+        const transcriptionParams = {
           file: fs.createReadStream(tempFilePath),
           model: "whisper-large-v3",
           response_format: "json"
-        });
+        };
+        // If the speaker's language is known, pass it as a hint to Whisper
+        // This significantly improves accuracy in noisy/accented speech
+        if (speakerLanguage) {
+          transcriptionParams.language = speakerLanguage;
+          console.log(`🌐 Whisper language hint: ${speakerLanguage}`);
+        }
+        const transcription = await groq.audio.transcriptions.create(transcriptionParams);
         text = transcription.text?.trim();
         console.log(`📝 Transcribed: "${text}"`);
 

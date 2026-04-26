@@ -2046,3 +2046,106 @@
     height: 50px;
   }
 }
+
+/* ── Noise Suppression Button ─────────────────────────────────────────────── */
+.noise-btn {
+  position: relative;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+.noise-btn.active {
+  background: rgba(46, 204, 113, 0.25) !important;
+  border-color: #2ecc71 !important;
+  box-shadow: 0 0 10px rgba(46, 204, 113, 0.4);
+}
+
+.noise-btn.active span {
+  color: #2ecc71;
+}
+
+.noise-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Noise suppression status badge shown in header area */
+.noise-suppression-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(46, 204, 113, 0.2);
+  border: 1px solid rgba(46, 204, 113, 0.5);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: #2ecc71;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.noise-suppression-badge .ns-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2ecc71;
+  animation: ns-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes ns-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* ── Translation Audio Mode Badge (on remote video tiles) ─────────────────── */
+.translation-audio-badge {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid rgba(52, 152, 219, 0.6);
+  border-radius: 20px;
+  padding: 4px 10px 4px 8px;
+  font-size: 11px;
+  color: #fff;
+  white-space: nowrap;
+  z-index: 10;
+  backdrop-filter: blur(6px);
+  pointer-events: all;
+}
+
+.translation-audio-badge .tab-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.hear-original-btn {
+  background: rgba(52, 152, 219, 0.3);
+  border: 1px solid rgba(52, 152, 219, 0.7);
+  color: #7ec8f7;
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-left: 2px;
+}
+
+.hear-original-btn:hover {
+  background: rgba(52, 152, 219, 0.55);
+  color: #fff;
+}
+
+.hear-original-btn.active {
+  background: rgba(231, 76, 60, 0.3);
+  border-color: rgba(231, 76, 60, 0.7);
+  color: #f1948a;
+}
+
+.hear-original-btn.active:hover {
+  background: rgba(231, 76, 60, 0.55);
+  color: #fff;
+}

@@ -19,7 +19,7 @@ const SUPPORTED_LANGUAGES = [
   { code: 'pl', name: 'Polish', flag: '🇵🇱' }
 ];
 
-function LanguageSelector({ selectedLanguage, onLanguageChange, showLabel = true }) {
+function LanguageSelector({ selectedLanguage, onLanguageChange, showLabel = true, label }) {
   const [isOpen, setIsOpen] = useState(false);
 
   const handleSelect = (langCode) => {
@@ -31,7 +31,7 @@ function LanguageSelector({ selectedLanguage, onLanguageChange, showLabel = true
 
   return (
     <div className="language-selector">
-      {showLabel && <label className="language-label">🌐 Translation Language:</label>}
+      {showLabel && <label className="language-label">{label || '🌐 Translation Language:'}</label>}
       <div className="language-dropdown">
         <button 
           className="language-button"

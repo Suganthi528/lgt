@@ -4,6 +4,7 @@ import io from 'socket.io-client';
 import { SOCKET_URL } from '../config';
 import LanguageSelector from './LanguageSelector';
 import { useNoiseSuppression } from '../hooks/useNoiseSuppression';
+import Whiteboard from './Whiteboard';
 import './VideoCall.css';
 
 function VideoCall() {
@@ -57,11 +58,27 @@ function VideoCall() {
   // TTS state
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const ttsEnabledRef = useRef(true);
+  // Whether the browser's autoplay policy has been unlocked by a user gesture
+  const ttsUnlockedRef = useRef(false);
+  // Global mute for original (WebRTC) audio when translation is active
+  const [muteOriginalAudio, setMuteOriginalAudio] = useState(false);
+  const [ttsSpeaking, setTtsSpeaking] = useState(false);
 
   // Keep ref in sync with state
   useEffect(() => {
     ttsEnabledRef.current = ttsEnabled;
   }, [ttsEnabled]);
+
+  // Unlock TTS on first user interaction (browser autoplay policy)
+  const unlockTts = useCallback(() => {
+    if (ttsUnlockedRef.current || !window.speechSynthesis) return;
+    // Speak a silent utterance to unlock the audio context
+    const silent = new SpeechSynthesisUtterance('');
+    silent.volume = 0;
+    window.speechSynthesis.speak(silent);
+    ttsUnlockedRef.current = true;
+    console.log('🔓 TTS unlocked via user gesture');
+  }, []);
 
   // TTS queue — prevents skipping/overlapping, handles autoplay restrictions
   const ttsQueueRef = useRef([]);
@@ -73,6 +90,7 @@ function VideoCall() {
 
     const { text, lang } = ttsQueueRef.current.shift();
     ttsSpeakingRef.current = true;
+    setTtsSpeaking(true);
 
     // Chrome bug: speechSynthesis pauses after ~14s — keep it alive
     const keepAlive = setInterval(() => {
@@ -91,6 +109,7 @@ function VideoCall() {
     utterance.onend = () => {
       clearInterval(keepAlive);
       ttsSpeakingRef.current = false;
+      setTtsSpeaking(false);
       // Process next item after a tiny gap
       setTimeout(processTtsQueue, 80);
     };
@@ -98,6 +117,7 @@ function VideoCall() {
       clearInterval(keepAlive);
       console.warn('TTS error:', e.error);
       ttsSpeakingRef.current = false;
+      setTtsSpeaking(false);
       setTimeout(processTtsQueue, 80);
     };
 
@@ -116,9 +136,16 @@ function VideoCall() {
     };
     const lang = langMap[langCode] || langCode || 'en-US';
 
-    // Keep queue short — drop oldest if backed up (> 3 items means we're behind)
-    if (ttsQueueRef.current.length >= 3) {
-      ttsQueueRef.current.shift();
+    // Keep queue short — drop all but the latest if backed up (real-time sync)
+    if (ttsQueueRef.current.length >= 2) {
+      console.log(`⚡ TTS queue backed up (${ttsQueueRef.current.length}), dropping stale items`);
+      ttsQueueRef.current = [];
+      // Cancel current speech to jump to latest
+      if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        ttsSpeakingRef.current = false;
+        setTtsSpeaking(false);
+      }
     }
     ttsQueueRef.current.push({ text, lang });
     processTtsQueue();
@@ -134,12 +161,7 @@ function VideoCall() {
   const [timeUntilEnd, setTimeUntilEnd] = useState(null); // ms until scheduled end
   const meetingTimerRef = useRef(null);
   
-  // Whiteboard state
-  const [wbColor, setWbColor] = useState('#000000');
-  const [wbSize, setWbSize] = useState(5);
-  const wbCanvasRef = useRef(null);
-  const wbDrawingRef = useRef(false);
-  const wbLastPosRef = useRef({ x: 0, y: 0 });
+  // Whiteboard state (showWhiteboard toggle only — drawing handled by Whiteboard component)
 
   // UI State
   const [showChat, setShowChat] = useState(false);
@@ -214,13 +236,6 @@ function VideoCall() {
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noiseSuppressionEnabled]);
-
-  // Replay existing strokes when whiteboard opens
-  useEffect(() => {
-    if (showWhiteboard && roomInfo?.whiteboardStrokes?.length) {
-      setTimeout(() => replayStrokes(roomInfo.whiteboardStrokes), 50);
-    }
-  }, [showWhiteboard]);
 
   useEffect(() => {
     // Prevent automatic start - only initialize if we have proper state
@@ -706,10 +721,15 @@ function VideoCall() {
         targetLanguage: data.targetLanguage,
         targetLanguageName: data.targetLanguageName,
         speakerName: data.speakerName,
-        timestamp: new Date().toLocaleTimeString()
+        timestamp: new Date().toLocaleTimeString(),
+        isFallback: false
       };
       
-      setTranscriptionResults(prev => [...prev, newResult]);
+      setTranscriptionResults(prev => {
+        // Keep only last 50 results to avoid memory bloat
+        const updated = [...prev, newResult];
+        return updated.length > 50 ? updated.slice(-50) : updated;
+      });
       setShowTranscriptions(true);
 
       // Speak the translated text if TTS is enabled (use ref to avoid stale closure)
@@ -721,7 +741,19 @@ function VideoCall() {
     socket.on('transcription-error', (error) => {
       console.error('❌ Transcription error:', error);
       setIsTranslating(false);
-      alert(`Translation failed: ${error.error}`);
+      // Fallback: show subtitle instead of alert
+      const fallbackResult = {
+        id: Date.now(),
+        original: '[Translation failed]',
+        translated: `⚠️ ${error.error || 'Translation unavailable — check your connection'}`,
+        targetLanguage: translationLanguage,
+        targetLanguageName: 'Error',
+        speakerName: 'System',
+        timestamp: new Date().toLocaleTimeString(),
+        isFallback: true
+      };
+      setTranscriptionResults(prev => [...prev, fallbackResult]);
+      setShowTranscriptions(true);
     });
 
     socket.on('speaker-busy', ({ activeSpeaker }) => {
@@ -729,25 +761,7 @@ function VideoCall() {
       setTranslationStatus(`🔒 ${activeSpeaker} is speaking...`);
     });
 
-    // Whiteboard sync
-    socket.on('whiteboard-draw', (data) => {
-      const canvas = wbCanvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      ctx.beginPath();
-      ctx.moveTo(data.x0, data.y0);
-      ctx.lineTo(data.x1, data.y1);
-      ctx.strokeStyle = data.size === 20 ? 'white' : data.color;
-      ctx.lineWidth = data.size;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.stroke();
-    });
-
-    socket.on('whiteboard-clear', () => {
-      const canvas = wbCanvasRef.current;
-      if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-    });
+    // Whiteboard sync is handled by the Whiteboard component directly
 
     socket.on('error', (message) => {
       console.error('❌ Socket error:', message);
@@ -1147,6 +1161,8 @@ function VideoCall() {
       // Auto-enable TTS so translated speech is heard immediately
       setTtsEnabled(true);
       ttsEnabledRef.current = true;
+      // Unlock TTS audio context (requires being called from a user gesture chain)
+      unlockTts();
 
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (!audioTrack) {
@@ -1166,7 +1182,15 @@ function VideoCall() {
         await audioContext.resume();
         console.log('▶️ AudioContext resumed');
       }
-      const micStream = new MediaStream([audioTrack]);
+
+      // Use the RAW (unprocessed) stream for VAD analysis so RNNoise doesn't
+      // suppress the signal below the speech threshold.
+      // rawStreamRef holds the original mic stream before noise suppression.
+      const vadAudioTrack = rawStreamRef.current
+        ? rawStreamRef.current.getAudioTracks()[0]
+        : audioTrack;
+
+      const micStream = new MediaStream([vadAudioTrack]);
       const sourceNode = audioContext.createMediaStreamSource(micStream);
 
       // High-pass filter at 80 Hz — removes low-frequency hum/rumble
@@ -1190,12 +1214,15 @@ function VideoCall() {
       };
 
       // ── Tuning constants ─────────────────────────────────────────────────
-      const SPEECH_THRESHOLD  = 0.012; // RMS above this = speech
-      const SILENCE_THRESHOLD = 0.008; // RMS below this = silence
-      const SILENCE_GAP_MS    = 800;   // ms of silence before we cut the chunk
-      const MAX_CHUNK_MS      = 8000;  // hard cap — send even if still speaking
-      const MIN_CHUNK_MS      = 400;   // ignore chunks shorter than this
+      const SPEECH_THRESHOLD  = 0.018; // RMS above this = speech (raised to avoid background noise)
+      const SILENCE_THRESHOLD = 0.010; // RMS below this = silence
+      const SILENCE_GAP_MS    = 900;   // ms of silence before we cut the chunk
+      const MAX_CHUNK_MS      = 10000; // hard cap — send even if still speaking
+      const MIN_CHUNK_MS      = 600;   // ignore chunks shorter than this (avoids noise bursts)
       const VAD_POLL_MS       = 80;    // how often we sample RMS
+      // Consecutive speech frames required before we start recording (debounce)
+      const SPEECH_ONSET_FRAMES = 3;
+      let speechOnsetCount = 0;
 
       // ── VAD state machine ────────────────────────────────────────────────
       const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
@@ -1216,7 +1243,7 @@ function VideoCall() {
         chunks = [];
         speechStartTime = Date.now();
         const recStream = new MediaStream([audioTrack]);
-        recorder = new MediaRecorder(recStream, { mimeType, audioBitsPerSecond: 32000 });
+        recorder = new MediaRecorder(recStream, { mimeType, audioBitsPerSecond: 64000 });
 
         recorder.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) chunks.push(e.data);
@@ -1241,7 +1268,7 @@ function VideoCall() {
               audio: reader.result,
               roomId,
               speakerName: participantName,
-              speakerLanguage: location.state?.speakerLanguage || null // hint for Whisper
+              speakerLanguage: location.state?.speakerLanguage || location.state?.nativeLanguage || null // hint for Whisper
             });
             setTranslationStatus('✅ Sent — listening...');
           };
@@ -1260,14 +1287,19 @@ function VideoCall() {
 
         if (!isSpeaking) {
           if (rms >= SPEECH_THRESHOLD) {
-            // Speech onset
-            isSpeaking = true;
-            silenceStartTime = 0;
-            setTranslationStatus('🎤 Speaking...');
-            console.log(`🗣️ Speech onset (RMS ${rms.toFixed(4)})`);
-            startRecording();
+            speechOnsetCount++;
+            if (speechOnsetCount >= SPEECH_ONSET_FRAMES) {
+              // Confirmed speech onset (not a noise spike)
+              isSpeaking = true;
+              speechOnsetCount = 0;
+              silenceStartTime = 0;
+              setTranslationStatus('🎤 Speaking...');
+              console.log(`🗣️ Speech onset confirmed (RMS ${rms.toFixed(4)})`);
+              startRecording();
+            }
           } else {
-            setTranslationStatus('🔇 Listening...');
+            speechOnsetCount = 0;
+            setTranslationStatus(`🔇 Listening... (level: ${rms.toFixed(4)})`);
           }
         } else {
           // Currently speaking
@@ -1581,78 +1613,6 @@ function VideoCall() {
     });
   }, []);
 
-  // ── Whiteboard helpers ──────────────────────────────────────────────────
-  const getWbPos = (e, canvas) => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    return {
-      x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top) * scaleY
-    };
-  };
-
-  const drawStroke = useCallback((canvas, x0, y0, x1, y1, color, size) => {
-    const ctx = canvas.getContext('2d');
-    ctx.beginPath();
-    ctx.moveTo(x0, y0);
-    ctx.lineTo(x1, y1);
-    ctx.strokeStyle = size === 20 ? 'white' : color;
-    ctx.lineWidth = size;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.stroke();
-  }, []);
-
-  const wbStartDraw = useCallback((e) => {
-    e.preventDefault();
-    const canvas = wbCanvasRef.current;
-    if (!canvas) return;
-    wbDrawingRef.current = true;
-    const pos = getWbPos(e, canvas);
-    wbLastPosRef.current = pos;
-  }, []);
-
-  const wbDraw = useCallback((e) => {
-    e.preventDefault();
-    if (!wbDrawingRef.current) return;
-    const canvas = wbCanvasRef.current;
-    if (!canvas) return;
-    const pos = getWbPos(e, canvas);
-    const { x: x0, y: y0 } = wbLastPosRef.current;
-    const { x: x1, y: y1 } = pos;
-    drawStroke(canvas, x0, y0, x1, y1, wbColor, wbSize);
-    wbLastPosRef.current = pos;
-    // Emit to other participants
-    if (socketRef.current?.connected) {
-      socketRef.current.emit('whiteboard-draw', { x0, y0, x1, y1, color: wbColor, size: wbSize });
-    }
-  }, [wbColor, wbSize, drawStroke]);
-
-  const wbEndDraw = useCallback((e) => {
-    e.preventDefault();
-    wbDrawingRef.current = false;
-  }, []);
-
-  const clearWhiteboard = useCallback(() => {
-    const canvas = wbCanvasRef.current;
-    if (canvas) {
-      canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-    }
-    if (socketRef.current?.connected) {
-      socketRef.current.emit('whiteboard-clear');
-    }
-  }, []);
-
-  // Replay strokes on canvas (used when whiteboard opens or strokes arrive)
-  const replayStrokes = useCallback((strokes) => {
-    const canvas = wbCanvasRef.current;
-    if (!canvas || !strokes?.length) return;
-    strokes.forEach(s => drawStroke(canvas, s.x0, s.y0, s.x1, s.y1, s.color, s.size));
-  }, [drawStroke]);
-
   const leaveCall = useCallback(() => {
     console.log('👋 Leaving call...');
     cleanup();
@@ -1727,6 +1687,7 @@ function VideoCall() {
     }
     ttsQueueRef.current = [];
     ttsSpeakingRef.current = false;
+    setTtsSpeaking(false);
 
     // Stop continuous translation if active
     if (continuousRecorderRef.current) {
@@ -1916,6 +1877,7 @@ function VideoCall() {
                   raisedHands={raisedHands}
                   translationActive={translationEnabled}
                   ttsEnabled={ttsEnabled}
+                  globalMuteOriginal={muteOriginalAudio}
                 />
               );
             })}
@@ -2090,17 +2052,20 @@ function VideoCall() {
             {showTranscriptions && (
               <div className="transcriptions-panel">
                 <div className="transcriptions-header">
-                  <h3>🌐 Translations ({transcriptionResults.length})</h3>
+                  <h3>🌐 Translations ({transcriptionResults.length}){ttsSpeaking && <span className="tts-speaking-dot" title="Speaking..."> 🔊</span>}</h3>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <button
                       onClick={() => {
                         const next = !ttsEnabled;
                         setTtsEnabled(next);
-                        if (!next) {
+                        if (next) {
+                          unlockTts();
+                        } else {
                           // Muting — cancel current speech and clear queue
                           if (window.speechSynthesis) window.speechSynthesis.cancel();
                           ttsQueueRef.current = [];
                           ttsSpeakingRef.current = false;
+                          setTtsSpeaking(false);
                         }
                       }}
                       title={ttsEnabled ? 'Mute voice output' : 'Enable voice output'}
@@ -2132,7 +2097,7 @@ function VideoCall() {
                     </div>
                   ) : (
                     transcriptionResults.map(result => (
-                      <div key={result.id} className="transcription-item">
+                      <div key={result.id} className={`transcription-item${result.isFallback ? ' fallback-item' : ''}`}>
                         <div className="transcription-header">
                           <div className="transcription-speaker">
                             🗣️ {result.speakerName || 'Unknown'}
@@ -2214,58 +2179,14 @@ function VideoCall() {
         </div>
       )}
 
-      {/* Whiteboard Modal */}
+      {/* Whiteboard */}
       {showWhiteboard && (
-        <div className="modal-overlay whiteboard-overlay" onClick={() => setShowWhiteboard(false)}>
-          <div className="whiteboard-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>🖊 Collaborative Whiteboard</h3>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                {/* Color picker */}
-                <input
-                  type="color"
-                  value={wbColor}
-                  onChange={e => setWbColor(e.target.value)}
-                  title="Pen color"
-                  style={{ width: 32, height: 32, border: 'none', cursor: 'pointer', borderRadius: 4 }}
-                />
-                {/* Brush size */}
-                <select
-                  value={wbSize}
-                  onChange={e => setWbSize(Number(e.target.value))}
-                  style={{ padding: '4px 6px', borderRadius: 4, border: 'none', cursor: 'pointer' }}
-                >
-                  <option value={2}>Thin</option>
-                  <option value={5}>Medium</option>
-                  <option value={10}>Thick</option>
-                  <option value={20}>Eraser</option>
-                </select>
-                <button
-                  onClick={clearWhiteboard}
-                  style={{ padding: '4px 10px', borderRadius: 4, background: '#e74c3c', color: 'white', border: 'none', cursor: 'pointer' }}
-                >
-                  Clear All
-                </button>
-                <button onClick={() => setShowWhiteboard(false)}>✕</button>
-              </div>
-            </div>
-            <div className="whiteboard-content">
-              <canvas
-                ref={wbCanvasRef}
-                width={800}
-                height={560}
-                style={{ background: 'white', cursor: 'crosshair', display: 'block', borderRadius: 4 }}
-                onMouseDown={wbStartDraw}
-                onMouseMove={wbDraw}
-                onMouseUp={wbEndDraw}
-                onMouseLeave={wbEndDraw}
-                onTouchStart={wbStartDraw}
-                onTouchMove={wbDraw}
-                onTouchEnd={wbEndDraw}
-              />
-            </div>
-          </div>
-        </div>
+        <Whiteboard
+          socket={socketRef.current}
+          roomInfo={roomInfo}
+          participantName={location.state?.participantName || 'You'}
+          onClose={() => setShowWhiteboard(false)}
+        />
       )}
 
       {/* Control Bar */}
@@ -2347,6 +2268,21 @@ function VideoCall() {
               {translationEnabled ? 'Auto-Translate ON' : 'Auto-Translate'}
             </span>
           </button>
+
+          {/* Global original/translated audio toggle — only visible when translation is active */}
+          {translationEnabled && (
+            <button
+              onClick={() => {
+                unlockTts();
+                setMuteOriginalAudio(prev => !prev);
+              }}
+              className={`control-btn audio-mode-btn ${muteOriginalAudio ? 'active' : ''}`}
+              title={muteOriginalAudio ? 'Switch to original audio' : 'Switch to translated audio (mute original)'}
+            >
+              {muteOriginalAudio ? '🌐' : '🔊'}
+              <span>{muteOriginalAudio ? 'Translated' : 'Original'}</span>
+            </button>
+          )}
 
           <div className="inline-language-selector" title="Change translation language">
             <LanguageSelector
@@ -2478,16 +2414,15 @@ function VideoCall() {
 }
 
 // Separate component for remote video to ensure proper re-rendering
-const RemoteVideo = React.memo(({ participant, stream, index, raisedHands, translationActive, ttsEnabled }) => {
+const RemoteVideo = React.memo(({ participant, stream, index, raisedHands, translationActive, ttsEnabled, globalMuteOriginal }) => {
   const videoRef = useRef();
   const [isStreamActive, setIsStreamActive] = useState(false);
-  // When translation is active, suppress the raw WebRTC audio so only TTS is heard.
-  // User can toggle this back on with the "hear original" button.
+  // Per-video override: user can flip back to original for this specific participant
   const [hearOriginal, setHearOriginal] = useState(false);
 
   // Derived: should the video element play audio?
-  // Mute raw audio when: translation is on AND user hasn't asked to hear original
-  const rawAudioMuted = translationActive && !hearOriginal;
+  // Mute raw audio when: (global mute OR translation is on) AND user hasn't asked to hear original for this video
+  const rawAudioMuted = (translationActive || globalMuteOriginal) && !hearOriginal;
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -2506,10 +2441,10 @@ const RemoteVideo = React.memo(({ participant, stream, index, raisedHands, trans
     }
   }, [rawAudioMuted]);
 
-  // Reset "hear original" when translation is turned off
+  // Reset "hear original" when translation is turned off and global mute is off
   useEffect(() => {
-    if (!translationActive) setHearOriginal(false);
-  }, [translationActive]);
+    if (!translationActive && !globalMuteOriginal) setHearOriginal(false);
+  }, [translationActive, globalMuteOriginal]);
 
   const colorClass = `remote-video-${(index % 6) + 1}`;
   const hasRaisedHand = raisedHands.some(h => h.participantId === participant.id);

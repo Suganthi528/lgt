@@ -333,10 +333,22 @@ io.on("connection", socket => {
         const transcription = await groq.audio.transcriptions.create({
           file: fs.createReadStream(tempFilePath),
           model: "whisper-large-v3",
-          response_format: "json"
+          response_format: "verbose_json"
         });
 
         text = transcription.text;
+
+        // Reject low-confidence results
+        const avgNoSpeechProb = transcription.segments
+          ? transcription.segments.reduce((sum, s) => sum + (s.no_speech_prob || 0), 0) / (transcription.segments.length || 1)
+          : 0;
+        if (avgNoSpeechProb > 0.5) {
+          console.log(`🚫 Low confidence transcription, skipping`);
+          fs.unlinkSync(tempFilePath);
+          socket.emit("transcription-error", { error: "No clear speech detected" });
+          return;
+        }
+
         console.log(`📝 Transcribed: ${text}`);
       } catch (transcriptionError) {
         console.error(`❌ Transcription failed:`, transcriptionError.message);
@@ -365,14 +377,14 @@ io.on("connection", socket => {
         messages: [
           { 
             role: "system", 
-            content: `You are a professional translator. Translate the given text to ${targetLangName}. Only provide the translation, no explanations.` 
+            content: `You are a professional real-time interpreter. Your ONLY job is to translate the user's speech into ${targetLangName}. Output ONLY the translated text — no explanations, no notes, no alternatives. Preserve the original meaning exactly. Do NOT translate proper nouns.`
           },
           { 
             role: "user", 
             content: text 
           }
         ],
-        temperature: 0.3,
+        temperature: 0.1,
         max_tokens: 1024
       });
 
@@ -461,7 +473,7 @@ io.on("connection", socket => {
         const transcriptionParams = {
           file: fs.createReadStream(tempFilePath),
           model: "whisper-large-v3",
-          response_format: "json"
+          response_format: "verbose_json"  // gives us no_speech_prob for confidence filtering
         };
         // If the speaker's language is known, pass it as a hint to Whisper
         // This significantly improves accuracy in noisy/accented speech
@@ -473,7 +485,18 @@ io.on("connection", socket => {
         text = transcription.text?.trim();
         console.log(`📝 Transcribed: "${text}"`);
 
-        if (!text || text.length < 2) {
+        // Reject low-confidence transcriptions (Whisper hallucinating on silence/noise)
+        const avgNoSpeechProb = transcription.segments
+          ? transcription.segments.reduce((sum, s) => sum + (s.no_speech_prob || 0), 0) / (transcription.segments.length || 1)
+          : 0;
+        if (avgNoSpeechProb > 0.5) {
+          console.log(`🚫 Low confidence (no_speech_prob: ${avgNoSpeechProb.toFixed(2)}), skipping`);
+          fs.unlinkSync(tempFilePath);
+          activeSpeakers.delete(roomId);
+          return;
+        }
+
+        if (!text || text.length < 3) {
           console.log(`⚠️ Empty/too-short transcription, skipping`);
           fs.unlinkSync(tempFilePath);
           activeSpeakers.delete(roomId);
@@ -482,9 +505,13 @@ io.on("connection", socket => {
 
         // Filter Whisper hallucinations — common silence artifacts
         const HALLUCINATIONS = [
-          /^(thank you|thanks|you|bye|goodbye|\.+|,+|\s+)$/i,
-          /^\[.*\]$/, // e.g. [Music], [Applause]
-          /^(um+|uh+|hmm+|ah+)$/i
+          /^(thank you|thanks|you|bye|goodbye|see you|see you later|\.+|,+|\s+)$/i,
+          /^\[.*\]$/,  // e.g. [Music], [Applause], [BLANK_AUDIO]
+          /^(um+|uh+|hmm+|ah+|oh+|mm+)\.?$/i,
+          /^(subtitles|subtitle|captions|caption|transcribed|transcription)/i,
+          /thank you for (watching|listening)/i,
+          /^(yes|no|ok|okay|sure|right|alright|yeah|yep|nope)\.?$/i,
+          /^\W+$/  // only punctuation/whitespace
         ];
         if (HALLUCINATIONS.some(re => re.test(text))) {
           console.log(`🚫 Hallucination filtered: "${text}"`);
@@ -507,8 +534,15 @@ io.on("connection", socket => {
         'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish'
       };
 
-      // Group other participants by their preferred translation language
+      // Include the speaker themselves if they have a translation language set
+      // This lets the speaker see/hear their own speech translated
+      const speakerParticipant = room.participants.find(p => p.id === socket.id);
+      const speakerTargetLang = speakerParticipant?.translationLanguage || null;
+
+      // Group ALL participants (including speaker) by their preferred translation language
       const participantsByLanguage = new Map();
+
+      // Add other participants
       room.participants
         .filter(p => p.id !== socket.id)
         .forEach(participant => {
@@ -517,8 +551,17 @@ io.on("connection", socket => {
           participantsByLanguage.get(lang).push(participant);
         });
 
+      // Always include the speaker in their own target language so they see their translation
+      if (speakerTargetLang) {
+        if (!participantsByLanguage.has(speakerTargetLang)) {
+          participantsByLanguage.set(speakerTargetLang, []);
+        }
+        // Add speaker socket to receive their own translation
+        participantsByLanguage.get(speakerTargetLang).push({ id: socket.id, isSelf: true });
+      }
+
       if (participantsByLanguage.size === 0) {
-        console.log(`⚠️ No other participants to translate for`);
+        console.log(`⚠️ No participants to translate for (no language preferences set)`);
         fs.unlinkSync(tempFilePath);
         activeSpeakers.delete(roomId);
         return;
@@ -535,11 +578,18 @@ io.on("connection", socket => {
             messages: [
               {
                 role: "system",
-                content: `You are a professional real-time interpreter. Translate the following speech to ${targetLangName}. Output only the translation, nothing else.`
+                content: `You are a professional real-time interpreter. Your ONLY job is to translate the user's speech into ${targetLangName}.
+
+Rules:
+- Output ONLY the translated text. No explanations, no notes, no alternatives.
+- Preserve the original meaning, tone, and sentence structure as closely as possible.
+- If the input is a single word or short phrase, translate it as-is.
+- Do NOT add greetings, filler words, or anything not in the original.
+- Do NOT translate proper nouns (names of people, places, brands).`
               },
               { role: "user", content: text }
             ],
-            temperature: 0.2,
+            temperature: 0.1,
             max_tokens: 512
           });
 
@@ -549,7 +599,8 @@ io.on("connection", socket => {
           console.log(`✅ → ${targetLangName}: "${translatedText}"`);
 
           participants.forEach(participant => {
-            const participantSocket = io.sockets.sockets.get(participant.id);
+            const targetSocketId = participant.id;
+            const participantSocket = io.sockets.sockets.get(targetSocketId);
             if (participantSocket) {
               participantSocket.emit('participant-translation', {
                 original: text,
@@ -979,6 +1030,21 @@ io.on("connection", socket => {
     if (!room) return;
     room.whiteboardStrokes = [];
     io.to(roomId).emit('whiteboard-clear');
+  });
+
+  // Cursor position broadcast (whiteboard)
+  socket.on('whiteboard-cursor', (data) => {
+    const userInfo = userSockets.get(socket.id);
+    if (!userInfo) return;
+    const { roomId } = userInfo;
+    socket.to(roomId).emit('whiteboard-cursor', { socketId: socket.id, ...data });
+  });
+
+  socket.on('whiteboard-cursor-leave', () => {
+    const userInfo = userSockets.get(socket.id);
+    if (!userInfo) return;
+    const { roomId } = userInfo;
+    socket.to(roomId).emit('whiteboard-cursor-leave', { socketId: socket.id });
   });
 
   // Get room stats

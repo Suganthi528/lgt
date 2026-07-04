@@ -1,0 +1,275 @@
+/* ── Whiteboard overlay ─────────────────────────────────────────────────── */
+.wb-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 16px;
+}
+
+.wb-container {
+  display: flex;
+  flex-direction: column;
+  background: #1a1a2e;
+  border-radius: 14px;
+  box-shadow: 0 12px 60px rgba(0, 0, 0, 0.7);
+  width: min(1340px, 98vw);
+  max-height: 96vh;
+  overflow: hidden;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.wb-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(0, 0, 0, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.wb-title {
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.wb-header-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.wb-action-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #fff;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.15s;
+}
+.wb-action-btn:hover:not(:disabled) { background: rgba(255,255,255,0.2); }
+.wb-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.wb-clear-btn:hover:not(:disabled) { background: rgba(231, 76, 60, 0.5); }
+
+.wb-close-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #fff;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wb-close-btn:hover { background: rgba(231, 76, 60, 0.6); }
+
+/* ── Body ───────────────────────────────────────────────────────────────── */
+.wb-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── Toolbar ────────────────────────────────────────────────────────────── */
+.wb-toolbar {
+  width: 90px;
+  background: rgba(0, 0, 0, 0.3);
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 6px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.wb-tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wb-section-label {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 4px;
+}
+
+.wb-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 6px 0;
+}
+
+.wb-tool-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  padding: 6px 4px;
+  transition: all 0.15s;
+  font-size: 0.7rem;
+}
+.wb-tool-btn:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+.wb-tool-btn.active {
+  background: rgba(52, 152, 219, 0.35);
+  border-color: #3498db;
+  color: #fff;
+}
+
+.wb-tool-icon { font-size: 1.1rem; line-height: 1; }
+.wb-tool-label { font-size: 0.6rem; }
+
+/* Colors */
+.wb-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.wb-color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+  flex-shrink: 0;
+}
+.wb-color-swatch:hover { transform: scale(1.2); }
+.wb-color-swatch.active { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #3498db; }
+
+.wb-color-custom {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  background: none;
+}
+
+/* Sizes */
+.wb-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.wb-size-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 0.65rem;
+  padding: 3px 5px;
+  transition: all 0.15s;
+}
+.wb-size-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
+.wb-size-btn.active { background: rgba(52,152,219,0.35); border-color: #3498db; color: #fff; }
+
+/* Participant badges */
+.wb-you-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: rgba(255,255,255,0.7);
+  font-size: 0.65rem;
+  padding: 2px 0;
+}
+
+.wb-cursor-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Canvas area ────────────────────────────────────────────────────────── */
+.wb-canvas-wrap {
+  flex: 1;
+  position: relative;
+  background: #f8f8f8;
+  overflow: hidden;
+  display: flex;
+  align-items: stretch;
+}
+
+.wb-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+.wb-overlay-canvas {
+  z-index: 1;
+}
+
+/* ── Remote cursors ─────────────────────────────────────────────────────── */
+.wb-remote-cursor {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  transform: translate(-2px, -2px);
+}
+
+.wb-cursor-name {
+  position: absolute;
+  left: 16px;
+  top: 0;
+  background: #e74c3c;
+  color: #fff;
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* ── Text input ─────────────────────────────────────────────────────────── */
+.wb-text-input-wrap {
+  position: absolute;
+  z-index: 20;
+}
+
+.wb-text-input {
+  background: rgba(255, 255, 255, 0.9);
+  border: 2px dashed #3498db;
+  border-radius: 4px;
+  outline: none;
+  padding: 2px 6px;
+  min-width: 120px;
+  font-family: sans-serif;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .wb-toolbar {
+    width: 70px;
+  }
+  .wb-tool-label { display: none; }
+  .wb-section-label { display: none; }
+}

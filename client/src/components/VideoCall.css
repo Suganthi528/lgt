@@ -2149,3 +2149,55 @@
   background: rgba(231, 76, 60, 0.55);
   color: #fff;
 }
+
+/* ── Audio mode toggle button in control bar ─────────────────────────────── */
+.audio-mode-btn {
+  background: rgba(52, 152, 219, 0.2);
+  border: 1px solid rgba(52, 152, 219, 0.5);
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.audio-mode-btn.active {
+  background: rgba(46, 204, 113, 0.3);
+  border-color: rgba(46, 204, 113, 0.7);
+}
+
+/* ── TTS speaking indicator dot ──────────────────────────────────────────── */
+.tts-speaking-dot {
+  display: inline-block;
+  animation: tts-pulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes tts-pulse {
+  from { opacity: 0.4; }
+  to   { opacity: 1.0; }
+}
+
+/* ── Fallback subtitle item (translation error) ──────────────────────────── */
+.fallback-item {
+  border-left: 3px solid rgba(231, 76, 60, 0.7) !important;
+  background: rgba(231, 76, 60, 0.08) !important;
+}
+
+.fallback-item .translated-text p {
+  color: #f1948a;
+}
+
+/* ── Translation audio badge on remote video ─────────────────────────────── */
+.translation-audio-badge {
+  position: absolute;
+  bottom: 36px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: 12px;
+  padding: 4px 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #ecf0f1;
+  white-space: nowrap;
+  backdrop-filter: blur(4px);
+  z-index: 10;
+}

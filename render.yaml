@@ -11,7 +11,7 @@ services:
         destination: /index.html
     envVars:
       - key: REACT_APP_SIGNALING_SERVER
-        value: https://video-translate-server.onrender.com
+        value: https://lgt-3.onrender.com
 
   - type: web
     name: video-translate-server

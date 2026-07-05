@@ -18,7 +18,8 @@ const ALLOWED_ORIGINS = [
   'http://localhost:3001',
   'https://video-meet-client.onrender.com',
   'https://video-meet-aj54.onrender.com',
-  'https://lgt-2.onrender.com'
+  'https://lgt-2.onrender.com',
+  'https://lgt-3.onrender.com'
 ];
 
 const corsOptions = {
@@ -1142,7 +1143,7 @@ Rules:
   });
 });
 
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);

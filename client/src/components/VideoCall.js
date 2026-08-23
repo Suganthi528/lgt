@@ -36,6 +36,7 @@ function VideoCall() {
   // Translation state
   const [translationEnabled, setTranslationEnabled] = useState(false);
   const [translationLanguage, setTranslationLanguage] = useState('es');
+  const [speakerLanguage, setSpeakerLanguage] = useState('en'); // language the user speaks in
   const [isTranslating, setIsTranslating] = useState(false);
   const [transcriptionResults, setTranscriptionResults] = useState([]);
   const [showTranscriptions, setShowTranscriptions] = useState(false);
@@ -43,6 +44,7 @@ function VideoCall() {
   const [isCapturingAudio, setIsCapturingAudio] = useState(false);
   const [continuousRecorder, setContinuousRecorder] = useState(null);
   const continuousRecorderRef = useRef(null);
+  const speakerLanguageRef = useRef('en'); // always holds latest speaker language for VAD closure
   const [translationStatus, setTranslationStatus] = useState(''); // Status message for debugging
   
   // Noise suppression (Krisp-equivalent via RNNoise WASM)
@@ -68,6 +70,10 @@ function VideoCall() {
   useEffect(() => {
     ttsEnabledRef.current = ttsEnabled;
   }, [ttsEnabled]);
+
+  useEffect(() => {
+    speakerLanguageRef.current = speakerLanguage;
+  }, [speakerLanguage]);
 
   // Unlock TTS on first user interaction (browser autoplay policy)
   const unlockTts = useCallback(() => {
@@ -132,7 +138,8 @@ function VideoCall() {
       'en': 'en-US', 'es': 'es-ES', 'fr': 'fr-FR', 'de': 'de-DE',
       'it': 'it-IT', 'pt': 'pt-PT', 'ru': 'ru-RU', 'ja': 'ja-JP',
       'ko': 'ko-KR', 'zh': 'zh-CN', 'ar': 'ar-SA', 'hi': 'hi-IN',
-      'tr': 'tr-TR', 'nl': 'nl-NL', 'pl': 'pl-PL'
+      'tr': 'tr-TR', 'nl': 'nl-NL', 'pl': 'pl-PL',
+      'ta': 'ta-IN', 'te': 'te-IN', 'ml': 'ml-IN', 'kn': 'kn-IN'
     };
     const lang = langMap[langCode] || langCode || 'en-US';
 
@@ -258,6 +265,12 @@ function VideoCall() {
       setTranslationLanguage(userLang);
       console.log(`🌐 User translation language set to: ${userLang}`);
     }
+    // Set user's speaker language
+    const { speakerLanguage: spkLang } = location.state;
+    if (spkLang) {
+      setSpeakerLanguage(spkLang);
+      console.log(`🎤 User speaker language set to: ${spkLang}`);
+    }
 
     console.log('✅ Valid join attempt detected, initializing call');
     initializeCall();
@@ -371,7 +384,8 @@ function VideoCall() {
         participantName,
         participantEmail,
         isHost: isHost || false,
-        translationLanguage: userLang || translationLanguage
+        translationLanguage: userLang || translationLanguage,
+        speakerLanguage: location.state.speakerLanguage || 'en'
       });
 
       // Record join time for meeting history
@@ -779,7 +793,15 @@ function VideoCall() {
       setConnectionStatus('Reconnected');
       const { participantName, participantEmail, passcode, isHost, translationLanguage: userLang } = location.state || {};
       if (participantName && passcode) {
-        socket.emit('join-room', {
+        socketRef.current.emit('join-room', {
+          roomId,
+          passcode,
+          participantName,
+          participantEmail,
+          isHost: isHost || false,
+          translationLanguage: userLang || 'en',
+          speakerLanguage: location.state?.speakerLanguage || 'en'
+        });t.emit('join-room', {
           roomId,
           passcode,
           participantName,
@@ -1268,7 +1290,7 @@ function VideoCall() {
               audio: reader.result,
               roomId,
               speakerName: participantName,
-              speakerLanguage: location.state?.speakerLanguage || location.state?.nativeLanguage || null // hint for Whisper
+              speakerLanguage: speakerLanguageRef.current || 'en'
             });
             setTranslationStatus('✅ Sent — listening...');
           };
@@ -1374,19 +1396,29 @@ function VideoCall() {
   }, [translationEnabled, startContinuousTranslation, stopContinuousTranslation]);
 
   // Change translation language mid-meeting
-  const changeLanguage = useCallback((newLang) => {
+  const changeTranslationLanguage = useCallback((newLang) => {
     setTranslationLanguage(newLang);
-    // Notify server so other participants' translations target the new language
     if (socketRef.current?.connected) {
       socketRef.current.emit('update-language', { translationLanguage: newLang });
     }
-    // Restart continuous translation with the new language if it's running
     if (translationEnabled) {
       stopContinuousTranslation();
-      // Small delay to let state settle before restarting
       setTimeout(() => startContinuousTranslation(), 200);
     }
     console.log(`🌐 Translation language changed to: ${newLang}`);
+  }, [translationEnabled, stopContinuousTranslation, startContinuousTranslation]);
+
+  // Change speaker language mid-meeting (what the user speaks in, sent to Whisper)
+  const changeSpeakerLanguage = useCallback((newLang) => {
+    setSpeakerLanguage(newLang);
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('update-language', { speakerLanguage: newLang });
+    }
+    if (translationEnabled) {
+      stopContinuousTranslation();
+      setTimeout(() => startContinuousTranslation(), 200);
+    }
+    console.log(`🎤 Speaker language changed to: ${newLang}`);
   }, [translationEnabled, stopContinuousTranslation, startContinuousTranslation]);
 
   // Manual translation (original functionality)
@@ -2287,8 +2319,17 @@ function VideoCall() {
           <div className="inline-language-selector" title="Change translation language">
             <LanguageSelector
               selectedLanguage={translationLanguage}
-              onLanguageChange={changeLanguage}
+              onLanguageChange={changeTranslationLanguage}
               showLabel={false}
+            />
+          </div>
+
+          <div className="inline-language-selector" title="Change speaking language (what you speak in)">
+            <LanguageSelector
+              selectedLanguage={speakerLanguage}
+              onLanguageChange={changeSpeakerLanguage}
+              showLabel={false}
+              label="🎤 I speak:"
             />
           </div>
 

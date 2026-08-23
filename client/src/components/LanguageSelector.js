@@ -3,6 +3,11 @@ import './LanguageSelector.css';
 
 const SUPPORTED_LANGUAGES = [
   { code: 'en', name: 'English', flag: '🇺🇸' },
+  { code: 'ta', name: 'Tamil', flag: '🇮🇳' },
+  { code: 'hi', name: 'Hindi', flag: '🇮🇳' },
+  { code: 'te', name: 'Telugu', flag: '🇮🇳' },
+  { code: 'ml', name: 'Malayalam', flag: '🇮🇳' },
+  { code: 'kn', name: 'Kannada', flag: '🇮🇳' },
   { code: 'es', name: 'Spanish', flag: '🇪🇸' },
   { code: 'fr', name: 'French', flag: '🇫🇷' },
   { code: 'de', name: 'German', flag: '🇩🇪' },
@@ -13,7 +18,6 @@ const SUPPORTED_LANGUAGES = [
   { code: 'ko', name: 'Korean', flag: '🇰🇷' },
   { code: 'zh', name: 'Chinese', flag: '🇨🇳' },
   { code: 'ar', name: 'Arabic', flag: '🇸🇦' },
-  { code: 'hi', name: 'Hindi', flag: '🇮🇳' },
   { code: 'tr', name: 'Turkish', flag: '🇹🇷' },
   { code: 'nl', name: 'Dutch', flag: '🇳🇱' },
   { code: 'pl', name: 'Polish', flag: '🇵🇱' }

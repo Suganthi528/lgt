@@ -16,6 +16,7 @@ const app = express();
 const ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'http://localhost:3001',
+  'https://vcclient.nerdlab.co.in',
   'https://video-meet-client.onrender.com',
   'https://video-meet-aj54.onrender.com',
   'https://lgt-2.onrender.com',
@@ -366,7 +367,8 @@ io.on("connection", socket => {
         'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
         'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
         'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'hi': 'Hindi',
-        'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish'
+        'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish',
+        'ta': 'Tamil', 'te': 'Telugu', 'ml': 'Malayalam', 'kn': 'Kannada'
       };
       
       const targetLangName = languageNames[targetLanguage] || 'Spanish';
@@ -421,13 +423,18 @@ io.on("connection", socket => {
         return;
       }
 
-      const { audio, roomId, speakerName, speakerLanguage } = audioData;
+      const { audio, roomId, speakerName, speakerLanguage: payloadSpeakerLang } = audioData;
 
       const room = rooms.get(roomId);
       if (!room) {
         console.log(`❌ Room ${roomId} not found`);
         return;
       }
+
+      // Use speaker language from the server-stored participant record (authoritative),
+      // falling back to the payload value for backward compatibility.
+      const senderParticipant = room.participants.find(p => p.id === socket.id);
+      const speakerLanguage = senderParticipant?.speakerLanguage || payloadSpeakerLang || null;
 
       // ── Speaker lock: only one active speaker per room ───────────────────
       const now = Date.now();
@@ -532,7 +539,8 @@ io.on("connection", socket => {
         'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
         'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
         'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'hi': 'Hindi',
-        'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish'
+        'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish',
+        'ta': 'Tamil', 'te': 'Telugu', 'ml': 'Malayalam', 'kn': 'Kannada'
       };
 
       // Include the speaker themselves if they have a translation language set
@@ -634,7 +642,7 @@ Rules:
     }
   });
 
-  socket.on('join-room', ({ roomId, passcode, participantName, participantEmail, isHost, translationLanguage }) => {
+  socket.on('join-room', ({ roomId, passcode, participantName, participantEmail, isHost, translationLanguage, speakerLanguage }) => {
     console.log(`👤 ${participantName} (${socket.id}) attempting to join room ${roomId} as ${isHost ? 'ADMIN' : 'PARTICIPANT'} with translation: ${translationLanguage || 'none'}`);
     
     const room = rooms.get(roomId);
@@ -718,6 +726,7 @@ Rules:
       isScreenSharing: false,
       hasRaisedHand: false,
       translationLanguage: translationLanguage || 'en', // Store user's preferred language
+      speakerLanguage: speakerLanguage || 'en',          // Language user speaks in (for Whisper)
       joinedAt: new Date().toISOString()
     };
     
@@ -994,18 +1003,23 @@ Rules:
   });
 
   // Update participant language during meeting
-  socket.on('update-language', ({ translationLanguage }) => {
+  socket.on('update-language', ({ translationLanguage, speakerLanguage }) => {
     const userInfo = userSockets.get(socket.id);
     if (!userInfo) return;
     const { roomId, participant } = userInfo;
     const room = rooms.get(roomId);
     if (!room) return;
     
-    // Update participant's translation language in room
     const roomParticipant = room.participants.find(p => p.id === socket.id);
     if (roomParticipant) {
-      roomParticipant.translationLanguage = translationLanguage;
-      console.log(`🌐 ${participant.name} changed translation language to: ${translationLanguage}`);
+      if (translationLanguage) {
+        roomParticipant.translationLanguage = translationLanguage;
+        console.log(`🌐 ${participant.name} changed translation language to: ${translationLanguage}`);
+      }
+      if (speakerLanguage) {
+        roomParticipant.speakerLanguage = speakerLanguage;
+        console.log(`🎤 ${participant.name} changed speaker language to: ${speakerLanguage}`);
+      }
     }
   });
 

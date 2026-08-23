@@ -801,7 +801,7 @@ function VideoCall() {
           isHost: isHost || false,
           translationLanguage: userLang || 'en',
           speakerLanguage: location.state?.speakerLanguage || 'en'
-        });t.emit('join-room', {
+        });socket.emit('join-room', {
           roomId,
           passcode,
           participantName,
